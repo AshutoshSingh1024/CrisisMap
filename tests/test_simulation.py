@@ -28,7 +28,7 @@ class SimulationTests(unittest.TestCase):
         self.assertGreaterEqual(result.overall_score, 0)
         self.assertLessEqual(result.overall_score, 100)
         self.assertIn("Test Ward", result.summary)
-        self.assertEqual(len(result.recommendations), 2)
+        self.assertEqual(len(result.recommendations), 3)
 
     def test_higher_intensity_increases_flood_risk(self):
         low = assess(self.location, Scenario(DisasterType.FLOOD, 2, 12, .5))
