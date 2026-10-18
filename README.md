@@ -61,6 +61,13 @@ Use **File → Open GeoJSON** to load a local FeatureCollection. CrisisMap under
 | `soil` | 0–1 | Softer soil increases earthquake risk |
 | `water_distance` | 0–1 | Normalized distance from water |
 
+The app also supports GeoJSON files with alternate property names (`Name1`, `Name2`, `wardnum`) and coordinate ordering ([lat, lon] vs [lon, lat]).
+
+### Bundled datasets
+
+- **Demo region** (`demo_region.geojson`) — synthetic CC0 demonstration data with 8 features.
+- **Pune wards** (`pune_wards.geojson`) — real Pune Municipal Corporation ward boundaries (58 wards, ODbL-1.0, source: OpenCity/Oorvani Foundation). Load via **Map → Load Pune wards (real map)**.
+
 OpenStreetMap data is available under ODbL and Natural Earth data is public domain. Export and store only the area needed, retain the source attribution, and load the resulting file locally. The included `demo_region.geojson` is synthetic and CC0.
 
 ## Project layout
