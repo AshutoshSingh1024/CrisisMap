@@ -9,39 +9,49 @@ from .ui.main_window import MainWindow
 
 
 STYLE = """
-* { font-family: "Segoe UI"; font-size: 13px; }
-QMainWindow, QWidget { background: #091722; color: #dceaf2; }
-QMenuBar { background: #091722; padding: 3px; }
-QMenuBar::item:selected, QMenu::item:selected { background: #174156; }
-QMenu { background: #102431; border: 1px solid #284657; }
-#brand { font-size: 23px; font-weight: 900; letter-spacing: 2px; }
-#subtitle { color: #7890a0; font-size: 13px; }
-#modePill { color: #86efac; background: #10352c; border: 1px solid #1e604d; border-radius: 11px; padding: 5px 11px; font-size: 11px; font-weight: 700; }
-#panel { background: #0e2130; border: 1px solid #203b4c; border-radius: 12px; }
+* { font-family: "Segoe UI"; font-size: 11px; }
+QMainWindow, QWidget { background: #0f1115; color: #e8eaed; }
+QMenuBar { background: #0f1115; padding: 2px; border-bottom: 1px solid #22252b; }
+QMenuBar::item { background: transparent; padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; }
+QMenuBar::item:selected { background: #1e222a; color: #64b5f6; }
+QMenu { background: #15181c; border: 1px solid #22252b; }
+QMenu::item { padding: 6px 24px 6px 12px; color: #e8eaed; }
+QMenu::item:selected { background: #1e222a; color: #64b5f6; }
+QMenu::separator { height: 1px; margin: 4px 0px; background: #22252b; }
+#brand { font-size: 17px; font-weight: 700; letter-spacing: 0.5px; color: #e8eaed; }
+#subtitle { color: #8a8f98; font-size: 11px; }
+#panel { background: #15181c; border: 1px solid #22252b; border-radius: 8px; padding: 8px; }
 #sideScroll { border: none; background: transparent; }
-#panelTitle { font-size: 20px; font-weight: 750; }
-#sectionLabel { color: #6f8da0; font-size: 10px; font-weight: 800; letter-spacing: 1px; margin-top: 8px; }
-#selectionCard { background: #112c3c; border-left: 3px solid #22d3ee; border-radius: 5px; padding: 10px; color: #bcd2df; }
-#hint { color: #7890a0; font-size: 11px; }
-#mapCaption { background: #0b1b27; color: #7890a0; padding: 8px 14px; }
-QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox { background: #0a1924; border: 1px solid #294657; border-radius: 6px; padding: 8px; selection-background-color: #0891b2; }
-QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #22d3ee; }
-QPushButton { background: #173447; border: 1px solid #2b5065; border-radius: 7px; padding: 9px; font-weight: 650; }
-QPushButton:hover { background: #20485e; }
-#primaryButton { background: #0891b2; color: #ffffff; border: none; padding: 12px; font-weight: 800; }
-#primaryButton:hover { background: #06b6d4; }
-#riskBadge { background: #142c3b; color: #7890a0; border-radius: 8px; padding: 8px; font-weight: 800; }
-#score { font-size: 47px; font-weight: 850; color: #f1f7fa; margin-top: 6px; }
-#metricLabel { color: #9bb1bf; font-size: 11px; }
-QProgressBar { background: #091722; border: none; border-radius: 4px; height: 9px; text-align: right; color: transparent; }
-QProgressBar::chunk { background: #22d3ee; border-radius: 4px; }
-#summary { background: #0a1924; border-radius: 7px; padding: 12px; color: #bcd2df; }
-#actions { color: #a9c2d0; line-height: 1.4; }
-#notice { background: #292317; color: #fbbf24; border: 1px solid #59451a; border-radius: 6px; padding: 9px; font-size: 10px; }
-QStatusBar { color: #7890a0; }
-QSplitter::handle { width: 8px; background: transparent; }
-QScrollBar:vertical { width: 8px; background: #091722; }
-QScrollBar::handle:vertical { background: #294657; border-radius: 4px; min-height: 30px; }
+#panelTitle { font-size: 13px; font-weight: 600; color: #e8eaed; }
+#sectionLabel { color: #8a8f98; font-size: 9px; font-weight: 600; letter-spacing: 0.5px; margin-top: 6px; text-transform: uppercase; }
+#selectionCard { background: #1e222a; border: 1px solid #22252b; border-radius: 6px; padding: 8px; color: #e8eaed; }
+#hint { color: #8a8f98; font-size: 10px; }
+QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox { background: #0f1115; border: 1px solid #22252b; border-radius: 4px; padding: 5px 8px; color: #e8eaed; }
+QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #64b5f6; }
+QPushButton { background: #1e222a; border: 1px solid #22252b; border-radius: 4px; padding: 6px 12px; font-weight: 600; color: #e8eaed; }
+QPushButton:hover { background: #262b34; border-color: #64b5f6; }
+QPushButton:pressed { background: #22252b; }
+#primaryButton { background: #1e7d32; color: #ffffff; border: none; border-radius: 4px; padding: 8px 16px; font-weight: 600; }
+#primaryButton:hover { background: #2e9e40; }
+#primaryButton:pressed { background: #186a28; }
+#riskBadge { background: #1e222a; color: #e8eaed; border: 1px solid #22252b; border-radius: 8px; padding: 8px; font-weight: 700; }
+#score { font-size: 32px; font-weight: 700; color: #e8eaed; margin-top: 4px; font-family: "Segoe UI"; }
+#metricLabel { color: #8a8f98; font-size: 10px; font-weight: 600; }
+QProgressBar { background: #22252b; border: 1px solid #2d3239; border-radius: 4px; height: 12px; text-align: center; color: transparent; }
+QProgressBar::chunk { background: #64b5f6; border: none; border-radius: 3px; }
+#summary { background: #1e222a; border: 1px solid #22252b; border-radius: 6px; padding: 8px; color: #e8eaed; font-size: 10px; }
+#actions { color: #e8eaed; line-height: 1.4; font-size: 10px; }
+#suggestions { color: #e8eaed; line-height: 1.4; font-size: 10px; font-weight: 600; }
+QStatusBar { color: #8a8f98; background: #0f1115; border-top: 1px solid #22252b; }
+QSplitter::handle { width: 2px; background: #22252b; }
+QScrollBar:vertical { width: 12px; background: #0f1115; border: none; }
+QScrollBar::handle:vertical { background: #2d3239; border-radius: 6px; min-height: 20px; }
+QScrollBar::handle:vertical:pressed { background: #4a4f58; }
+QSlider::groove:horizontal { background: #2d3239; border: none; height: 4px; border-radius: 2px; }
+QSlider::handle:horizontal { background: #64b5f6; border: none; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+QSlider::handle:horizontal:pressed { background: #42a5f5; }
+QScrollArea { border: none; }
+QScrollArea > QScrollAreaWidget > QWidget { background: transparent; }
 """
 
 
@@ -51,7 +61,7 @@ def main() -> int:
     app.setOrganizationName("CrisisMap")
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
-    app.setFont(QFont("Segoe UI", 10))
+    app.setFont(QFont("Segoe UI", 9))
     window = MainWindow()
     window.show()
     return app.exec()

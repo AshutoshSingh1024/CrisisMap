@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -28,9 +28,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..data_repository import MapDataset, bundled_dataset, load_geojson, procedural_dataset
+from ..data_repository import MapDataset, bundled_dataset, load_geojson, pune_dataset, streets_dataset, procedural_dataset
 from ..export import save_assessment
-from ..models import Assessment, DisasterType, LocationProfile, Scenario
+from ..export_pdf import export_pdf
+from ..models import Assessment, DisasterType, LocationProfile, RiskLevel, Scenario
 from ..simulation import assess
 from .map_view import MapView, RISK_COLORS
 
@@ -38,17 +39,18 @@ from .map_view import MapView, RISK_COLORS
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("CrisisMap · Offline Impact Assessment")
+        self.setWindowTitle("CrisisMap - Offline Impact Assessment")
         self.resize(1440, 850)
         self.setMinimumSize(1080, 680)
         self.dataset: MapDataset | None = None
         self.location: LocationProfile | None = None
         self.assessment: Assessment | None = None
+        self._anim_timer: QTimer | None = None
         self._build_menu()
         self._build_ui()
         self.setStatusBar(QStatusBar())
-        self.statusBar().showMessage("Offline mode · no network services are used")
-        self.load_dataset(bundled_dataset())
+        self.statusBar().showMessage("")
+        self.load_dataset(pune_dataset())
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -58,18 +60,24 @@ class MainWindow(QMainWindow):
         export_action = QAction("Export assessment…", self)
         export_action.setShortcut(QKeySequence.StandardKey.Save)
         export_action.triggered.connect(self.export_assessment)
+        export_pdf_action = QAction("Export PDF report…", self)
+        export_pdf_action.triggered.connect(self.export_pdf_report)
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
-        file_menu.addActions([open_action, export_action])
+        file_menu.addActions([open_action, export_action, export_pdf_action])
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
 
         map_menu = self.menuBar().addMenu("&Map")
         demo_action = QAction("Load demo region", self)
         demo_action.triggered.connect(lambda: self.load_dataset(bundled_dataset()))
+        pune_action = QAction("Load Pune wards (real map)", self)
+        pune_action.triggered.connect(lambda: self.load_dataset(pune_dataset()))
+        streets_action = QAction("Load Pune streets (OSM)", self)
+        streets_action.triggered.connect(lambda: self.load_dataset(streets_dataset()))
         terrain_action = QAction("Generate procedural terrain", self)
         terrain_action.triggered.connect(self.generate_terrain)
-        map_menu.addActions([demo_action, terrain_action])
+        map_menu.addActions([demo_action, pune_action, streets_action, terrain_action])
 
         help_menu = self.menuBar().addMenu("&Help")
         about_action = QAction("About CrisisMap", self)
@@ -79,21 +87,18 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget()
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(18, 14, 18, 16)
-        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(4, 4, 4, 4)
+        root_layout.setSpacing(2)
 
         header = QHBoxLayout()
-        brand = QLabel("CRISIS<span style='color:#22d3ee'>MAP</span>")
+        brand = QLabel("CRISIS<span style='color:#64b5f6'>MAP</span>")
         brand.setObjectName("brand")
-        subtitle = QLabel("Offline disaster impact assessment")
+        subtitle = QLabel("Disaster impact assessment")
         subtitle.setObjectName("subtitle")
-        mode = QLabel("●  OFFLINE READY")
-        mode.setObjectName("modePill")
         header.addWidget(brand)
-        header.addSpacing(12)
+        header.addSpacing(8)
         header.addWidget(subtitle)
         header.addStretch()
-        header.addWidget(mode)
         root_layout.addLayout(header)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -103,16 +108,14 @@ class MainWindow(QMainWindow):
         map_container = QFrame()
         map_container.setObjectName("panel")
         map_layout = QVBoxLayout(map_container)
-        map_layout.setContentsMargins(0, 0, 0, 0)
+        map_layout.setContentsMargins(2, 2, 2, 2)
         self.map_view = MapView()
         self.map_view.location_selected.connect(self._select_location)
+        self.map_view.hovered_location.connect(self._on_hover_location)
         map_layout.addWidget(self.map_view)
-        self.map_caption = QLabel("Drag to pan · Wheel to zoom · Click to select nearest area")
-        self.map_caption.setObjectName("mapCaption")
-        map_layout.addWidget(self.map_caption)
         splitter.addWidget(map_container)
         splitter.addWidget(self._results_panel())
-        splitter.setSizes([300, 800, 330])
+        splitter.setSizes([340, 760, 340])
         root_layout.addWidget(splitter, 1)
         self.setCentralWidget(root)
 
@@ -124,24 +127,32 @@ class MainWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("panel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(13)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
         title = QLabel("Scenario setup")
         title.setObjectName("panelTitle")
         layout.addWidget(title)
+
         layout.addWidget(self._section_label("01  LOCATION"))
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search loaded places…")
+        self.search.setPlaceholderText("Search Pune locality…")
         self.search.returnPressed.connect(self.search_location)
         layout.addWidget(self.search)
         self.location_label = QLabel("Select an area on the map")
-        self.location_label.setObjectName("selectionCard")
         self.location_label.setWordWrap(True)
+        self.location_label.setObjectName("selectionCard")
         layout.addWidget(self.location_label)
+
+        # MITWPU preset button
+        mitwpu_button = QPushButton("Load MIT-WPU Kothrud")
+        mitwpu_button.setToolTip("Load MIT World Peace University, Kothrud as test location")
+        mitwpu_button.clicked.connect(self._load_mitwpu)
+        layout.addWidget(mitwpu_button)
 
         layout.addWidget(self._section_label("02  HAZARD"))
         form = QFormLayout()
-        form.setVerticalSpacing(12)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(4)
         self.disaster = QComboBox()
         self.disaster.addItems([item.value for item in DisasterType])
         self.disaster.currentTextChanged.connect(self._update_parameter_help)
@@ -154,9 +165,20 @@ class MainWindow(QMainWindow):
         self.duration.setRange(.5, 168)
         self.duration.setValue(24)
         self.duration.setSuffix(" h")
+        self.time_of_day = QSpinBox()
+        self.time_of_day.setRange(0, 23)
+        self.time_of_day.setValue(12)
+        self.time_of_day.setSuffix(":00")
+        self.time_of_day.setToolTip("Hour of day (0-23)")
+        self.season = QComboBox()
+        self.season.addItems(["Dry", "Monsoon", "Winter", "Summer", "Mixed"])
+        self.season.setCurrentText("Mixed")
+        self.season.setToolTip("Seasonal condition")
         form.addRow("Disaster", self.disaster)
         form.addRow("Intensity", self.intensity)
         form.addRow("Duration", self.duration)
+        form.addRow("Time of day", self.time_of_day)
+        form.addRow("Season", self.season)
         layout.addLayout(form)
         self.parameter_help = QLabel()
         self.parameter_help.setWordWrap(True)
@@ -174,6 +196,33 @@ class MainWindow(QMainWindow):
         prep_row.addWidget(self.preparedness_value)
         layout.addLayout(prep_row)
 
+        layout.addWidget(self._section_label("04  RISK FACTOR WEIGHTS"))
+        ahp_form = QFormLayout()
+        ahp_form.setHorizontalSpacing(8)
+        ahp_form.setVerticalSpacing(4)
+        self.w_hazard = QDoubleSpinBox()
+        self.w_hazard.setRange(0, 1)
+        self.w_hazard.setSingleStep(0.05)
+        self.w_hazard.setValue(0.52)
+        self.w_hazard.setDecimals(2)
+        self.w_exposure = QDoubleSpinBox()
+        self.w_exposure.setRange(0, 1)
+        self.w_exposure.setSingleStep(0.05)
+        self.w_exposure.setValue(0.25)
+        self.w_exposure.setDecimals(2)
+        self.w_vulnerability = QDoubleSpinBox()
+        self.w_vulnerability.setRange(0, 1)
+        self.w_vulnerability.setSingleStep(0.05)
+        self.w_vulnerability.setValue(0.23)
+        self.w_vulnerability.setDecimals(2)
+        self.w_hazard.valueChanged.connect(self._normalize_ahp)
+        self.w_exposure.valueChanged.connect(self._normalize_ahp)
+        self.w_vulnerability.valueChanged.connect(self._normalize_ahp)
+        ahp_form.addRow("Physical hazard", self.w_hazard)
+        ahp_form.addRow("People exposure", self.w_exposure)
+        ahp_form.addRow("Social vulnerability", self.w_vulnerability)
+        layout.addLayout(ahp_form)
+
         self.run_button = QPushButton("Run assessment")
         self.run_button.setObjectName("primaryButton")
         self.run_button.clicked.connect(self.run_assessment)
@@ -190,8 +239,8 @@ class MainWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("panel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
         title = QLabel("Assessment")
         title.setObjectName("panelTitle")
         layout.addWidget(title)
@@ -207,6 +256,14 @@ class MainWindow(QMainWindow):
         score_caption.setObjectName("sectionLabel")
         score_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(score_caption)
+        self.confidence = QLabel("")
+        self.confidence.setObjectName("hint")
+        self.confidence.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.confidence)
+        self.weights_label = QLabel("")
+        self.weights_label.setObjectName("hint")
+        self.weights_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.weights_label)
 
         self.metrics: dict[str, QProgressBar] = {}
         for key in ("Hazard", "Exposure", "Vulnerability"):
@@ -223,15 +280,18 @@ class MainWindow(QMainWindow):
         self.summary.setWordWrap(True)
         self.summary.setObjectName("summary")
         layout.addWidget(self.summary)
+
+        layout.addWidget(self._section_label("SUGGESTIONS"))
+        self.suggestions = QLabel("")
+        self.suggestions.setWordWrap(True)
+        self.suggestions.setObjectName("suggestions")
+        layout.addWidget(self.suggestions)
+
         self.actions = QLabel("")
         self.actions.setWordWrap(True)
         self.actions.setObjectName("actions")
         layout.addWidget(self.actions)
         layout.addStretch()
-        notice = QLabel("Educational model · assessment, not prediction")
-        notice.setWordWrap(True)
-        notice.setObjectName("notice")
-        layout.addWidget(notice)
         return panel
 
     @staticmethod
@@ -240,6 +300,13 @@ class MainWindow(QMainWindow):
         label.setObjectName("sectionLabel")
         return label
 
+    def _normalize_ahp(self) -> None:
+        total = self.w_hazard.value() + self.w_exposure.value() + self.w_vulnerability.value()
+        if total > 0:
+            self.w_hazard.setValue(round(self.w_hazard.value() / total, 2))
+            self.w_exposure.setValue(round(self.w_exposure.value() / total, 2))
+            self.w_vulnerability.setValue(round(self.w_vulnerability.value() / total, 2))
+
     def load_dataset(self, dataset: MapDataset) -> None:
         self.dataset = dataset
         self.location = None
@@ -247,9 +314,8 @@ class MainWindow(QMainWindow):
         self.map_view.set_dataset(dataset)
         self.location_label.setText("Select an area on the map")
         self.search.clear()
-        self.map_caption.setText(f"{dataset.name} · {dataset.source} · {len(dataset.locations)} searchable places")
         self.clear_result()
-        self.statusBar().showMessage(f"Loaded {dataset.name} locally · offline mode")
+        self.statusBar().showMessage(f"Loaded {dataset.name}")
 
     def _select_location(self, location: LocationProfile) -> None:
         self.location = location
@@ -257,9 +323,14 @@ class MainWindow(QMainWindow):
         self.location_label.setText(
             f"<b>{location.name}</b><br>"
             f"{location.latitude:.4f}, {location.longitude:.4f}<br>"
-            f"Elevation {location.elevation_m:.0f} m"
+            f"Elevation {location.elevation_m:.0f} m · "
+            f"Income {location.income_level:.0%} · Literacy {location.literacy_rate:.0%}"
         )
         self.statusBar().showMessage(f"Selected {location.name}")
+
+    def _on_hover_location(self, name: str) -> None:
+        if self.location is None:
+            self.location_label.setText(f"<b>{name}</b>")
 
     def search_location(self) -> None:
         if not self.dataset:
@@ -272,11 +343,36 @@ class MainWindow(QMainWindow):
             return
         self.map_view.select_location(matches[0], emit=True)
 
+    def _load_mitwpu(self) -> None:
+        """Load MIT-WPU Kothrud as a preset test location."""
+        if not self.dataset:
+            return
+        for loc in self.dataset.locations:
+            if loc.name == "MIT-WPU Kothrud":
+                self.map_view.select_location(loc, emit=True)
+                self.statusBar().showMessage("Loaded MIT-WPU Kothrud preset")
+                return
+        self.statusBar().showMessage("MIT-WPU Kothrud not found in loaded dataset")
+
+    def export_pdf_report(self) -> None:
+        """Export the current assessment as a PDF report."""
+        if not self.assessment:
+            QMessageBox.information(self, "Nothing to export", "Run an assessment before exporting a PDF report.")
+            return
+        safe_name = "".join(ch if ch.isalnum() else "-" for ch in self.assessment.location.name.lower()).strip("-")
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDF report", f"crisismap-{safe_name}.pdf", "PDF (*.pdf)")
+        if path:
+            try:
+                export_pdf(self.assessment, path)
+                self.statusBar().showMessage(f"Saved PDF report to {path}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Could not export PDF", str(exc))
+
     def _update_parameter_help(self) -> None:
         help_text = {
-            "Flood": "Intensity represents rainfall/runoff severity; elevation and water proximity affect the result.",
-            "Wildfire": "Intensity represents fire-weather severity; vegetation and duration affect spread risk.",
-            "Earthquake": "Intensity represents ground-shaking severity; soft soil increases amplification.",
+            "Flood": "Rainfall runoff, elevation, water proximity, drainage, impervious surface, monsoon season.",
+            "Wildfire": "Fire weather, vegetation fuel, dryness, wind exposure, dry season.",
+            "Earthquake": "Ground shaking, soil amplification, building quality, informal housing, fault proximity.",
         }
         if hasattr(self, "parameter_help"):
             self.parameter_help.setText(help_text.get(self.disaster.currentText(), ""))
@@ -285,12 +381,41 @@ class MainWindow(QMainWindow):
         if not self.location:
             QMessageBox.information(self, "Select a location", "Click an area on the map or search for a loaded place first.")
             return
+        total = self.w_hazard.value() + self.w_exposure.value() + self.w_vulnerability.value()
+        if abs(total - 1.0) > 0.05:
+            QMessageBox.warning(self, "AHP weights must sum to 1.0", f"Current weights sum to {total:.2f}. They will be normalized automatically.")
         scenario = Scenario(
             disaster=DisasterType(self.disaster.currentText()),
             intensity=self.intensity.value(),
             duration_hours=self.duration.value(),
             preparedness=self.preparedness.value() / 100,
         )
+        # Apply time/season to location context (updates weights automatically)
+        loc = LocationProfile(
+            name=self.location.name,
+            longitude=self.location.longitude,
+            latitude=self.location.latitude,
+            elevation_m=self.location.elevation_m,
+            vegetation=self.location.vegetation,
+            population_density=self.location.population_density,
+            soil_softness=self.location.soil_softness,
+            water_distance=self.location.water_distance,
+            income_level=self.location.income_level,
+            literacy_rate=self.location.literacy_rate,
+            elderly_share=self.location.elderly_share,
+            child_share=self.location.child_share,
+            disability_share=self.location.disability_share,
+            hospital_capacity=self.location.hospital_capacity,
+            fire_station_proximity=self.location.fire_station_proximity,
+            shelter_capacity=self.location.shelter_capacity,
+            road_density=self.location.road_density,
+            informal_settlement=self.location.informal_settlement,
+            building_quality=self.location.building_quality,
+            roof_type_score=self.location.roof_type_score,
+            time_of_day=self.time_of_day.value(),
+            season=self.season.currentText().lower(),
+        )
+        self.location = loc
         self.assessment = assess(self.location, scenario)
         self.map_view.show_assessment(self.assessment)
         self._show_result(self.assessment)
@@ -299,15 +424,93 @@ class MainWindow(QMainWindow):
     def _show_result(self, result: Assessment) -> None:
         color = RISK_COLORS[result.risk_level].name()
         self.risk_badge.setText(f"{result.risk_level.value.upper()} RISK")
-        self.risk_badge.setStyleSheet(f"background:{color}; color:#07131f; border-radius:8px; padding:8px; font-weight:800;")
-        self.score.setText(f"{result.overall_score:.0f}<span style='font-size:18px;color:#7890a0'>/100</span>")
+        self.risk_badge.setStyleSheet(f"background:{color}; color:#000000; border: 1px solid #22252b; padding:8px; font-weight:800;")
+        self.score.setText(f"{result.overall_score:.0f}<span style='font-size:14px;color:#8a8f98'>/100</span>")
+        ci = int(result.confidence_interval * 100)
+        self.confidence.setText(f"{ci}% confidence: {result.confidence_lower:.0f}–{result.confidence_upper:.0f} (σ={result.mc_std:.1f}, n={result.mc_samples})")
+        self.weights_label.setText(f"Weights: H={result.scenario.weight_hazard:.2f} E={result.scenario.weight_exposure:.2f} V={result.scenario.weight_vulnerability:.2f}")
         self.metrics["Hazard"].setValue(round(result.hazard_score))
         self.metrics["Exposure"].setValue(round(result.exposure_score))
         self.metrics["Vulnerability"].setValue(round(result.vulnerability_score))
-        self.summary.setText(result.summary + f" Estimated affected radius: {result.affected_radius_km:.1f} km.")
+        impact_text = (
+            f"Estimated affected radius: {result.affected_radius_km:.1f} km · "
+            f"People affected: {result.people_affected:,} · "
+            f"Estimated property loss: ₹{result.property_loss_inr:,.0f}"
+        )
+        self.summary.setText(result.summary + " " + impact_text)
         self.actions.setText("<b>Suggested actions</b><br>• " + "<br>• ".join(result.recommendations))
+        self._generate_suggestions(result)
+        self._start_pulse_animation()
+
+    def _generate_suggestions(self, result: Assessment) -> None:
+        suggestions = []
+        loc = self.location
+        if not loc:
+            return
+
+        if result.risk_level is RiskLevel.LOW:
+            suggestions.append("Routine monitoring only. Standard preparedness measures are sufficient.")
+        elif result.risk_level is RiskLevel.MODERATE:
+            suggestions.append("Review evacuation routes and verify emergency supply kits.")
+            suggestions.append("Ensure drainage systems are clear for potential flooding.")
+        elif result.risk_level is RiskLevel.HIGH:
+            suggestions.append("Prepare evacuation plans and identify the nearest shelter immediately.")
+            suggestions.append("Secure loose outdoor objects and reinforce windows if high winds are expected.")
+        else:
+            suggestions.append("IMMEDIATE ACTION: Evacuate to designated shelter if instructed by authorities.")
+            suggestions.append("Prepare emergency go-bags with water, food, medications, and documents.")
+            suggestions.append("Shut off utilities if safe to do so before leaving the area.")
+
+        if loc.elevation_m < 50:
+            suggestions.append(f"Low elevation ({loc.elevation_m:.0f} m) increases flood exposure — prioritize higher ground routes.")
+        if loc.vegetation > 0.6:
+            suggestions.append("High vegetation density raises wildfire risk — create defensible space around structures.")
+        if loc.population_density > 0.7:
+            suggestions.append("High population density — plan staggered evacuation to avoid congestion.")
+        if loc.informal_settlement > 0.3:
+            suggestions.append("High informal settlement density — prioritize structural reinforcement and community alerts.")
+        if loc.hospital_capacity < 0.3:
+            suggestions.append("Low hospital capacity — pre-identify alternate medical facilities.")
+        if loc.fire_station_proximity < 0.3:
+            suggestions.append("Fire station far away — ensure on-site fire suppression equipment.")
+        if loc.shelter_capacity < 0.3:
+            suggestions.append("Limited shelter capacity — coordinate with nearby municipalities.")
+        if loc.building_quality < 0.4:
+            suggestions.append("Poor building quality — prioritize seismic retrofitting and wind bracing.")
+        if loc.time_of_day >= 22 or loc.time_of_day <= 6:
+            suggestions.append("Night-time scenario assumed — mobility is reduced; evacuate earlier.")
+        if loc.season == "monsoon" and result.scenario.disaster is DisasterType.FLOOD:
+            suggestions.append("Monsoon season — expect amplified flood risk; monitor river levels continuously.")
+
+        self.suggestions.setText("<b>Suggestions</b><br>• " + "<br>• ".join(suggestions))
+
+    def _start_pulse_animation(self) -> None:
+        if self._anim_timer:
+            self._anim_timer.stop()
+        self._anim_timer = QTimer(self)
+        self._pulse_state = 0
+        self._anim_timer.timeout.connect(self._tick_pulse)
+        self._anim_timer.start(60)
+
+    def _tick_pulse(self) -> None:
+        if not self._anim_timer or not self.assessment:
+            return
+        self._pulse_state = (self._pulse_state + 1) % 6
+        opacity = 1.0 if self._pulse_state < 3 else 0.6
+        self.risk_badge.setStyleSheet(
+            f"background:{RISK_COLORS[self.assessment.risk_level].name()}; color:#000000; "
+            f"border: 1px solid #22252b; padding:8px; font-weight:800; opacity:{opacity};"
+        )
+        if self._pulse_state == 5:
+            self._anim_timer.stop()
+            self.risk_badge.setStyleSheet(
+                f"background:{RISK_COLORS[self.assessment.risk_level].name()}; color:#000000; "
+                f"border: 1px solid #22252b; padding:8px; font-weight:800;"
+            )
 
     def clear_result(self) -> None:
+        if self._anim_timer:
+            self._anim_timer.stop()
         self.assessment = None
         if hasattr(self, "map_view"):
             self.map_view.clear_assessment()
@@ -315,10 +518,13 @@ class MainWindow(QMainWindow):
             self.risk_badge.setText("NO RESULT")
             self.risk_badge.setStyleSheet("")
             self.score.setText("—")
+            self.confidence.setText("")
+            self.weights_label.setText("")
             for bar in self.metrics.values():
                 bar.setValue(0)
             self.summary.setText("Configure a scenario and select a location to generate an assessment.")
             self.actions.clear()
+            self.suggestions.setText("")
 
     def open_geojson(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open local GeoJSON", str(Path.home()), "GeoJSON (*.geojson *.json)")
@@ -355,7 +561,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About CrisisMap",
-            "<b>CrisisMap 0.1.0</b><br><br>Fully offline educational disaster-impact assessment.<br>"
-            "Local GeoJSON rendering · deterministic simulation · no network access.<br><br>"
+            "<b>CrisisMap 0.2.0</b><br><br>Offline disaster-impact assessment with multi-factor hazard modeling, "
+            "AHP weighting, Monte Carlo uncertainty, and real Pune map data.<br><br>"
             "Assessment only — not prediction or emergency advice.",
         )
