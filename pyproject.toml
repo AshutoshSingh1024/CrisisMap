@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crisismap"
+version = "0.1.0"
+description = "Fully offline desktop disaster impact assessment simulator"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["PySide6>=6.8,<7"]
+
+[project.scripts]
+crisismap = "crisismap.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+crisismap = ["resources/data/*.geojson"]

@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "name": "Rivermark Offline Demo",
+  "source": "Synthetic CC0 demonstration data",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "Harbor Ward", "elevation": 8, "vegetation": 0.18, "density": 0.88, "soil": 0.76, "water_distance": 0.08},
+      "geometry": {"type": "Polygon", "coordinates": [[[72.80,18.90],[72.87,18.90],[72.88,18.96],[72.81,18.97],[72.80,18.90]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Central District", "elevation": 32, "vegetation": 0.22, "density": 0.95, "soil": 0.58, "water_distance": 0.38},
+      "geometry": {"type": "Polygon", "coordinates": [[[72.81,18.97],[72.88,18.96],[72.94,19.00],[72.91,19.07],[72.82,19.06],[72.81,18.97]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "North Ridge", "elevation": 186, "vegetation": 0.62, "density": 0.34, "soil": 0.24, "water_distance": 0.92},
+      "geometry": {"type": "Polygon", "coordinates": [[[72.82,19.06],[72.91,19.07],[72.95,19.14],[72.86,19.17],[72.79,19.12],[72.82,19.06]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "East Fields", "elevation": 58, "vegetation": 0.83, "density": 0.21, "soil": 0.41, "water_distance": 0.68},
+      "geometry": {"type": "Polygon", "coordinates": [[[72.94,19.00],[73.03,18.98],[73.06,19.08],[72.95,19.14],[72.91,19.07],[72.94,19.00]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Riverbend", "elevation": 18, "vegetation": 0.55, "density": 0.52, "soil": 0.67, "water_distance": 0.12},
+      "geometry": {"type": "Polygon", "coordinates": [[[72.88,18.90],[72.99,18.88],[73.03,18.98],[72.94,19.00],[72.88,18.96],[72.88,18.90]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Aster River"},
+      "geometry": {"type": "LineString", "coordinates": [[72.78,19.15],[72.84,19.10],[72.88,19.04],[72.90,18.98],[72.94,18.94],[73.01,18.89]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Civic Shelter", "elevation": 74, "vegetation": 0.20, "density": 0.70, "soil": 0.35, "water_distance": 0.65},
+      "geometry": {"type": "Point", "coordinates": [72.88,19.08]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Field Hospital", "elevation": 44, "vegetation": 0.15, "density": 0.72, "soil": 0.38, "water_distance": 0.54},
+      "geometry": {"type": "Point", "coordinates": [72.97,19.04]}
+    }
+  ]
+}
