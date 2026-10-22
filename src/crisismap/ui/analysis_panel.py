@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
@@ -24,26 +26,29 @@ from .chart_widgets import (
 
 
 class MetricCard(QFrame):
-    """A styled metric card showing a single key value."""
+    """A styled metric card showing a single value."""
 
     def __init__(self, title: str, value: str, subtitle: str = "", color: str = "#64b5f6",
                  parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("metricCard")
-        self.setFixedHeight(95)
+        self.setFixedHeight(100)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(4)
+        layout.setContentsMargins(14, 12, 14, 10)
+        layout.setSpacing(5)
 
         title_label = QLabel(title)
         title_label.setObjectName("metricTitle")
-        title_label.setFont(QFont("Segoe UI", 9))
+        title_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        title_label.setStyleSheet("color: #8a8f98;")
+        title_label.setWordWrap(True)
         layout.addWidget(title_label)
 
         value_label = QLabel(value)
         value_label.setObjectName("metricValue")
-        value_label.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        value_label.setFont(QFont("Segoe UI", 19, QFont.Weight.Bold))
         value_label.setStyleSheet(f"color: {color};")
+        value_label.setWordWrap(True)
         layout.addWidget(value_label)
 
         if subtitle:
@@ -51,6 +56,7 @@ class MetricCard(QFrame):
             sub_label.setObjectName("metricSubtitle")
             sub_label.setFont(QFont("Segoe UI", 8))
             sub_label.setStyleSheet("color: #8a8f98;")
+            sub_label.setWordWrap(True)
             layout.addWidget(sub_label)
 
 
@@ -60,10 +66,11 @@ class LocationInfoCard(QFrame):
     def __init__(self, location: LocationProfile, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("locationCard")
+        self.setMinimumHeight(130)
         layout = QGridLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(14, 12, 14, 10)
         layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(4)
+        layout.setVerticalSpacing(5)
 
         fields = [
             ("Name", location.name),
@@ -80,11 +87,13 @@ class LocationInfoCard(QFrame):
             row = i // 2
             col = (i % 2) * 2
             key_label = QLabel(key)
-            key_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+            key_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             key_label.setStyleSheet("color: #8a8f98;")
+            key_label.setWordWrap(True)
             val_label = QLabel(val)
-            val_label.setFont(QFont("Segoe UI", 9))
+            val_label.setFont(QFont("Segoe UI", 10))
             val_label.setStyleSheet("color: #e8eaed;")
+            val_label.setWordWrap(True)
             layout.addWidget(key_label, row, col)
             layout.addWidget(val_label, row, col + 1)
 
@@ -100,13 +109,14 @@ class AnalysisPanel(QScrollArea):
         self._widget.setObjectName("analysisPanelContent")
         self.setWidget(self._widget)
         self._layout = QVBoxLayout(self._widget)
-        self._layout.setContentsMargins(10, 10, 10, 10)
-        self._layout.setSpacing(10)
+        self._layout.setContentsMargins(14, 14, 14, 14)
+        self._layout.setSpacing(16)
 
         # Header
         self._header_label = QLabel("Detailed Risk Analysis")
         self._header_label.setObjectName("analysisHeader")
-        self._header_label.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
+        self._header_label.setFont(QFont("Segoe UI", 17, QFont.Weight.Bold))
+        self._header_label.setStyleSheet("color: #e8eaed;")
         self._layout.addWidget(self._header_label)
 
         # Top metrics row
@@ -114,14 +124,14 @@ class AnalysisPanel(QScrollArea):
         self._metrics_row.setSpacing(10)
         self._layout.addLayout(self._metrics_row)
 
-        # Charts row
+        # Charts row - larger charts
         self._charts_row = QHBoxLayout()
-        self._charts_row.setSpacing(10)
+        self._charts_row.setSpacing(12)
         self._layout.addLayout(self._charts_row)
 
         # Bottom: Location info + tables
         self._bottom_row = QHBoxLayout()
-        self._bottom_row.setSpacing(10)
+        self._bottom_row.setSpacing(12)
         self._layout.addLayout(self._bottom_row)
 
         self._location_card = LocationInfoCard(LocationProfile(
@@ -137,7 +147,8 @@ class AnalysisPanel(QScrollArea):
 
         table_title = QLabel("Factor Breakdown")
         table_title.setObjectName("tableTitle")
-        table_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        table_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        table_title.setStyleSheet("color: #e8eaed;")
         table_layout.addWidget(table_title)
 
         self._table = QTableWidget(0, 3)
@@ -145,13 +156,14 @@ class AnalysisPanel(QScrollArea):
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
+        self._table.verticalHeader().setDefaultSectionSize(28)
         table_layout.addWidget(self._table)
 
         self._bottom_row.addWidget(table_container, 2)
 
         self._layout.addStretch()
 
-        # Initialize charts
+        # Initialize charts - larger sizes for readable text
         self.gauge = RiskGaugeWidget()
         self.bar_chart = BarChartWidget()
         self.breakdown = RiskBreakdownWidget()
@@ -176,11 +188,11 @@ class AnalysisPanel(QScrollArea):
 
         self._table.setRowCount(0)
 
-
     def update_assessment(self, assessment: Assessment, location: LocationProfile) -> None:
         """Populate all charts and metrics from an assessment result."""
         # Update location card
         self._location_card = LocationInfoCard(location)
+        self._bottom_row.replaceWidget(self._bottom_row.itemAt(0).widget(), self._location_card)
 
         # Clear existing metric cards
         while self._metrics_row.count():
@@ -206,7 +218,7 @@ class AnalysisPanel(QScrollArea):
         ), 1)
         self._metrics_row.addWidget(MetricCard(
             "Confidence", f"{int(assessment.confidence_interval * 100)}%",
-            f"σ={assessment.mc_std:.1f}", "#42a5f5",
+            f"\u03c3={assessment.mc_std:.1f}", "#42a5f5",
         ), 1)
         self._metrics_row.addWidget(MetricCard(
             "Affected Radius", f"{assessment.affected_radius_km:.1f} km",
@@ -261,13 +273,15 @@ class AnalysisPanel(QScrollArea):
         ]
         self._table.setRowCount(len(rows))
         for r, (factor, val, impact) in enumerate(rows):
-            self._table.setItem(r, 0, QTableWidgetItem(factor))
-            self._table.setItem(r, 1, QTableWidgetItem(val))
-            self._table.setItem(r, 2, QTableWidgetItem(impact))
-            for c in range(3):
-                item = self._table.item(r, c)
-                item.setFont(QFont("Segoe UI", 9))
+            item0 = QTableWidgetItem(factor)
+            item1 = QTableWidgetItem(val)
+            item2 = QTableWidgetItem(impact)
+            for item in (item0, item1, item2):
+                item.setFont(QFont("Segoe UI", 10))
                 item.setForeground(QColor("#e8eaed"))
+            self._table.setItem(r, 0, item0)
+            self._table.setItem(r, 1, item1)
+            self._table.setItem(r, 2, item2)
 
     def export_charts(self, directory: str | Path) -> list[str]:
         """Export all charts as PNG images to the given directory.

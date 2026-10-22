@@ -16,13 +16,13 @@ from PySide6.QtWidgets import (
 class ChartWidget(QWidget):
     """Base widget embedding a matplotlib figure with dark theme."""
 
-    def __init__(self, parent=None, figsize=(4, 3), dpi=100) -> None:
+    def __init__(self, parent=None, figsize=(6, 4), dpi=100) -> None:
         super().__init__(parent)
         self._fig = Figure(figsize=figsize, dpi=dpi, facecolor="#0f1115")
         self._canvas = FigureCanvasQTAgg(self._fig)
         self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(self._canvas)
 
     def figure(self) -> Figure:
@@ -39,7 +39,7 @@ class RiskGaugeWidget(ChartWidget):
     """Donut gauge showing overall risk score."""
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent, figsize=(3.4, 3.4), dpi=100)
+        super().__init__(parent, figsize=(4.2, 4.2), dpi=100)
         self._ax = self._fig.add_subplot(111)
         self._score = 0.0
         self._level = "LOW"
@@ -64,24 +64,24 @@ class RiskGaugeWidget(ChartWidget):
 
         # Background track (subtle)
         track = Wedge(
-            (0.5, 0.5), 0.44, 90, -270,
-            width=0.14, facecolor="#22252b", edgecolor="none",
+            (0.5, 0.5), 0.40, 90, -270,
+            width=0.12, facecolor="#22252b", edgecolor="none",
         )
         ax.add_patch(track)
 
         # Score wedge
         theta = 360 * (self._score / 100.0)
         wedge = Wedge(
-            (0.5, 0.5), 0.44, 90, 90 - theta,
-            width=0.14, facecolor=color, edgecolor="none",
+            (0.5, 0.5), 0.40, 90, 90 - theta,
+            width=0.12, facecolor=color, edgecolor="none",
         )
         ax.add_patch(wedge)
 
         # Center score text
-        ax.text(0.5, 0.54, f"{self._score:.0f}", ha="center", va="center",
-                fontsize=20, fontweight="bold", color="#e8eaed")
-        ax.text(0.5, 0.46, self._level, ha="center", va="center",
-                fontsize=9, color="#8a8f98")
+        ax.text(0.5, 0.55, f"{self._score:.0f}", ha="center", va="center",
+                fontsize=22, fontweight="bold", color="#e8eaed")
+        ax.text(0.5, 0.44, self._level, ha="center", va="center",
+                fontsize=10, color="#8a8f98")
 
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
@@ -94,7 +94,7 @@ class BarChartWidget(ChartWidget):
     """Horizontal bar chart for component scores."""
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent, figsize=(5.2, 3.0), dpi=100)
+        super().__init__(parent, figsize=(6.2, 3.6), dpi=100)
         self._ax = self._fig.add_subplot(111)
         self._ax.set_facecolor("#0f1115")
 
@@ -123,12 +123,12 @@ class BarChartWidget(ChartWidget):
         bar_colors = [colors[i % len(colors)] for i in range(len(labels))]
 
         y_pos = range(len(labels))
-        bars = ax.barh(y_pos, values, color=bar_colors, height=0.6)
+        bars = ax.barh(y_pos, values, color=bar_colors, height=0.5)
         ax.set_yticks(y_pos)
-        ax.set_yticklabels(labels, color="#e8eaed", fontsize=9)
-        ax.set_xlim(0, max(100, max(values) * 1.25))
-        ax.set_xlabel("Risk Score", color="#8a8f98", fontsize=9)
-        ax.tick_params(axis="x", colors="#8a8f98", labelsize=8)
+        ax.set_yticklabels(labels, color="#e8eaed", fontsize=10)
+        ax.set_xlim(0, max(100, max(values) * 1.4))
+        ax.set_xlabel("Risk Score", color="#8a8f98", fontsize=10)
+        ax.tick_params(axis="x", colors="#8a8f98", labelsize=9)
         ax.spines["bottom"].set_color("#2d3239")
         ax.spines["left"].set_color("#2d3239")
         ax.spines["top"].set_visible(False)
@@ -137,9 +137,9 @@ class BarChartWidget(ChartWidget):
         for bar, val in zip(bars, values):
             ax.text(val + 1, bar.get_y() + bar.get_height() / 2,
                     f"{val:.0f}", va="center",
-                    fontsize=9, fontweight="bold", color="#e8eaed")
+                    fontsize=10, fontweight="bold", color="#e8eaed")
 
-        self._fig.tight_layout()
+        self._fig.tight_layout(pad=1.2)
         self.redraw()
 
 
@@ -147,7 +147,7 @@ class RiskBreakdownWidget(ChartWidget):
     """Donut pie chart showing risk factor contribution."""
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent, figsize=(3.4, 3.4), dpi=100)
+        super().__init__(parent, figsize=(4.2, 3.8), dpi=100)
         self._ax = self._fig.add_subplot(111)
         self._ax.set_facecolor("#0f1115")
 
@@ -179,18 +179,18 @@ class RiskBreakdownWidget(ChartWidget):
         wedges, texts, autotexts = ax.pie(
             values, labels=labels, colors=colors,
             autopct=lambda pct: f"{pct:.1f}%", startangle=90,
-            wedgeprops=dict(width=0.45, edgecolor="#0f1115"),
-            textprops=dict(color="#e8eaed", fontsize=8),
-            pctdistance=0.78,
+            wedgeprops=dict(width=0.42, edgecolor="#0f1115"),
+            textprops=dict(color="#e8eaed", fontsize=10),
+            pctdistance=0.75,
         )
         for autotext in autotexts:
             autotext.set_color("#ffffff")
-            autotext.set_fontsize(8)
+            autotext.set_fontsize(10)
             autotext.set_fontweight("bold")
 
         ax.set_title("Risk Factor Split", color="#e8eaed",
-                     fontsize=10, fontweight="bold", pad=10)
-        self._fig.tight_layout()
+                     fontsize=12, fontweight="bold", pad=14)
+        self._fig.tight_layout(pad=1.2)
         self.redraw()
 
 
@@ -198,7 +198,7 @@ class VulnerabilityRadarWidget(ChartWidget):
     """Radar/spider chart showing vulnerability factors."""
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent, figsize=(4.2, 4.2), dpi=100)
+        super().__init__(parent, figsize=(5.0, 5.0), dpi=100)
         self._ax = self._fig.add_subplot(111, polar=True)
 
     def set_values(self, factors: dict) -> None:
@@ -226,20 +226,19 @@ class VulnerabilityRadarWidget(ChartWidget):
         angles += angles[:1]
         values_plot = values + values[:1]
 
-        colors = ["#ef5350", "#ffa726", "#66bb6a", "#42a5f5", "#ab47bc"]
-        color = colors[0]
+        color = "#64b5f6"
 
         ax.plot(angles, values_plot, color=color, linewidth=2, linestyle="solid")
         ax.fill(angles, values_plot, color=color, alpha=0.25)
 
         ax.set_xticks(angles[:-1])
-        ax.set_xticklabels(labels, color="#8a8f98", fontsize=7)
+        ax.set_xticklabels(labels, color="#e8eaed", fontsize=9)
         ax.set_yticks([0.25, 0.5, 0.75, 1.0])
         ax.set_yticklabels(["25%", "50%", "75%", "100%"],
-                           color="#8a8f98", fontsize=7)
+                           color="#8a8f98", fontsize=8)
         ax.set_ylim(0, 1)
         ax.set_title("Vulnerability Profile", color="#e8eaed",
-                     fontsize=10, fontweight="bold", pad=20)
+                     fontsize=12, fontweight="bold", pad=22)
         ax.grid(color="#2d3239", linewidth=0.5)
-        self._fig.tight_layout()
+        self._fig.tight_layout(pad=1.5)
         self.redraw()
