@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import random
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence
+from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QComboBox,
+    QCheckBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -27,6 +29,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStatusBar,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -36,24 +39,28 @@ from ..export import save_assessment
 from ..export_pdf import export_pdf
 from ..models import Assessment, DisasterType, LocationProfile, RiskLevel, Scenario
 from ..simulation import assess, simulate_time_series
+from ..assistant_model import AssistantWorker
 from .analysis_panel import AnalysisPanel
 from .chart_widgets import BarChartWidget, RiskBreakdownWidget, RiskGaugeWidget
-from .map_view import MapView, RISK_COLORS
+from .osm_map import OSMMap as MapView
+from .map_view import RISK_COLORS
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("CrisisMap - Offline Impact Assessment")
+        self.setWindowTitle("CrisisMap - Pune Impact Assessment")
         self.resize(1440, 850)
         self.setMinimumSize(1080, 680)
         self.dataset: MapDataset | None = None
         self.location: LocationProfile | None = None
         self.assessment: Assessment | None = None
+        self._assistant_context_revision = 0
         self._comparison: Assessment | None = None
+        self._assistant_history: list[tuple[str, str]] = []
         self._anim_timer: QTimer | None = None
-        self._heat_enabled: bool = True
-        self._grid_enabled: bool = True
+        self._heat_enabled: bool = False
+        self._grid_enabled: bool = False
         self._build_menu()
         self._build_ui()
         self.setStatusBar(QStatusBar())
@@ -62,22 +69,22 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
-        open_action = QAction("Open GeoJSON…", self)
+        open_action = QAction("Open GeoJSONâ€¦", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self.open_geojson)
-        save_action = QAction("Save scenario…", self)
+        save_action = QAction("Save scenarioâ€¦", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
         save_action.triggered.connect(self.save_scenario)
-        load_action = QAction("Load scenario…", self)
+        load_action = QAction("Load scenarioâ€¦", self)
         load_action.setShortcut(QKeySequence("Ctrl+O"))
         load_action.triggered.connect(self.load_scenario)
-        export_action = QAction("Export assessment…", self)
+        export_action = QAction("Export assessmentâ€¦", self)
         export_action.triggered.connect(self.export_assessment)
-        export_pdf_action = QAction("Export PDF report…", self)
+        export_pdf_action = QAction("Export PDF reportâ€¦", self)
         export_pdf_action.triggered.connect(self.export_pdf_report)
-        export_charts_action = QAction("Export charts to PNG…", self)
+        export_charts_action = QAction("Export charts to PNGâ€¦", self)
         export_charts_action.triggered.connect(self.export_charts_report)
-        export_html_action = QAction("Export HTML report…", self)
+        export_html_action = QAction("Export HTML reportâ€¦", self)
         export_html_action.triggered.connect(self.export_html_report)
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
@@ -100,10 +107,10 @@ class MainWindow(QMainWindow):
 
         view_menu = self.menuBar().addMenu("&View")
         self.heat_action = QAction("Heatmap layer", self, checkable=True)
-        self.heat_action.setChecked(True)
+        self.heat_action.setChecked(False)
         self.heat_action.triggered.connect(self._toggle_heatmap)
         self.grid_action = QAction("Coordinate grid", self, checkable=True)
-        self.grid_action.setChecked(True)
+        self.grid_action.setChecked(False)
         self.grid_action.triggered.connect(self._toggle_grid)
         self.multihazard_action = QAction("Multi-hazard overlay", self, checkable=True)
         self.multihazard_action.triggered.connect(self._toggle_multi_hazard)
@@ -112,10 +119,7 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         about_action = QAction("About CrisisMap", self)
         about_action.triggered.connect(self.show_about)
-        offline_status_action = QAction("Offline Status", self)
-        offline_status_action.setToolTip("Verify app works fully offline")
-        offline_status_action.triggered.connect(self.show_offline_status)
-        help_menu.addActions([offline_status_action, about_action])
+        help_menu.addAction(about_action)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -132,14 +136,6 @@ class MainWindow(QMainWindow):
         header.addSpacing(8)
         header.addWidget(subtitle)
         header.addStretch()
-
-        offline_banner = QLabel("●  OFFLINE MODE")
-        offline_banner.setObjectName("offlineBanner")
-        header.addWidget(offline_banner)
-
-        offline_notice = QLabel("No network access · all data local · no API keys · works without internet")
-        offline_notice.setObjectName("offlineNotice")
-        header.addWidget(offline_notice)
 
         header.addStretch()
         root_layout.addLayout(header)
@@ -164,12 +160,12 @@ class MainWindow(QMainWindow):
         zoom_in = QPushButton("+")
         zoom_in.setObjectName("zoomButton")
         zoom_in.setToolTip("Zoom in")
-        zoom_in.clicked.connect(lambda: self.map_view.scale(1.18, 1.18))
+        zoom_in.clicked.connect(self.map_view.zoom_in)
         zoom_out = QPushButton("-")
         zoom_out.setObjectName("zoomButton")
         zoom_out.setToolTip("Zoom out")
-        zoom_out.clicked.connect(lambda: self.map_view.scale(1 / 1.18, 1 / 1.18))
-        zoom_reset = QPushButton("↺")
+        zoom_out.clicked.connect(self.map_view.zoom_out)
+        zoom_reset = QPushButton("â†º")
         zoom_reset.setObjectName("zoomButton")
         zoom_reset.setToolTip("Reset view")
         zoom_reset.clicked.connect(self._reset_map_view)
@@ -215,7 +211,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._section_label("01  LOCATION"))
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search Pune locality…")
+        self.search.setPlaceholderText("Search Pune localityâ€¦")
         self.search.returnPressed.connect(self.search_location)
         layout.addWidget(self.search)
         self.location_label = QLabel("Select an area on the map")
@@ -337,6 +333,9 @@ class MainWindow(QMainWindow):
         self.run_button.setObjectName("primaryButton")
         self.run_button.clicked.connect(self.run_assessment)
         layout.addWidget(self.run_button)
+        self.auto_assess = QCheckBox("Assess automatically when I click the map")
+        self.auto_assess.setChecked(False)
+        layout.addWidget(self.auto_assess)
         clear_button = QPushButton("Clear result")
         clear_button.clicked.connect(self.clear_result)
         layout.addWidget(clear_button)
@@ -355,8 +354,8 @@ class MainWindow(QMainWindow):
         # Keyboard shortcut hints
         layout.addWidget(self._section_label("KEYBOARD SHORTCUTS"))
         shortcuts = QLabel(
-            "F1 About · F2 Offline Status · F5 Run · Esc Clear<br>"
-            "1 Flood · 2 Wildfire · 3 Earthquake · H Heatmap · G Grid"
+            "F1 About Â· F5 Run Â· Esc Clear<br>"
+            "1 Flood Â· 2 Wildfire Â· 3 Earthquake Â· H Heatmap Â· G Grid"
         )
         shortcuts.setObjectName("hint")
         shortcuts.setWordWrap(True)
@@ -405,7 +404,7 @@ class MainWindow(QMainWindow):
         self.risk_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         quick_layout.addWidget(self.risk_badge)
 
-        self.score = QLabel("—")
+        self.score = QLabel("â€”")
         self.score.setObjectName("score")
         self.score.setAlignment(Qt.AlignmentFlag.AlignCenter)
         quick_layout.addWidget(self.score)
@@ -459,6 +458,40 @@ class MainWindow(QMainWindow):
         self.analysis_panel = AnalysisPanel()
         self.results_tabs.addTab(self.analysis_panel, "Detailed Analysis")
 
+        assistant_tab = QWidget()
+        assistant_layout = QVBoxLayout(assistant_tab)
+        assistant_layout.setContentsMargins(12, 12, 12, 12)
+        assistant_layout.setSpacing(10)
+        assistant_title = QLabel("CrisisMap AI Assistant")
+        assistant_title.setObjectName("panelTitle")
+        assistant_layout.addWidget(assistant_title)
+        assistant_note = QLabel("Qwen2.5-0.5B local model Â· concise answers grounded in assessment, map, shelter and route data.")
+        assistant_note.setWordWrap(True)
+        assistant_note.setObjectName("hint")
+        assistant_layout.addWidget(assistant_note)
+        self.assistant_chat = QTextBrowser()
+        self.assistant_chat.setReadOnly(True)
+        self.assistant_chat.setOpenExternalLinks(False)
+        self.assistant_chat.setStyleSheet(
+            "QTextBrowser { background:#0b111a; border:1px solid #263447; border-radius:10px; padding:8px; color:#e8eef7; }"
+        )
+        self.assistant_chat.setPlaceholderText("Ask about risk, scenario assumptions, locations, shelters, routes, or recommendationsâ€¦")
+        self._append_chat_message(
+            "system",
+            "Available Help Prompts\nSummarize my assessment Â· Explain the risk score Â· Identify risk factors Â· Suggest preparation steps Â· Find the nearest listed shelter",
+        )
+        assistant_layout.addWidget(self.assistant_chat, 1)
+        ask_row = QHBoxLayout()
+        self.assistant_question = QLineEdit()
+        self.assistant_question.setPlaceholderText("Ask a question about the current map or assessmentâ€¦")
+        ask_row.addWidget(self.assistant_question, 1)
+        self.assistant_button = QPushButton("Ask")
+        self.assistant_button.clicked.connect(self._answer_question)
+        self.assistant_question.returnPressed.connect(self._answer_question)
+        ask_row.addWidget(self.assistant_button)
+        assistant_layout.addLayout(ask_row)
+        self.results_tabs.addTab(assistant_tab, "AI Assistant")
+
         layout.addWidget(self.results_tabs)
         return panel
 
@@ -491,6 +524,8 @@ class MainWindow(QMainWindow):
         self.dataset = dataset
         self.location = None
         self.assessment = None
+        self._assistant_history.clear()
+        self._assistant_last_route = None
         self.map_view.set_dataset(dataset)
         self.location_label.setText("Select an area on the map")
         self.search.clear()
@@ -498,15 +533,20 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Loaded {dataset.name}")
 
     def _select_location(self, location: LocationProfile) -> None:
+        if self.location and (self.location.latitude != location.latitude or self.location.longitude != location.longitude):
+            self._assistant_history.clear()
+            self._assistant_last_route = None
         self.location = location
         self.search.setText(location.name)
         self.location_label.setText(
             f"<b>{location.name}</b><br>"
             f"{location.latitude:.4f}, {location.longitude:.4f}<br>"
-            f"Elevation {location.elevation_m:.0f} m · "
-            f"Income {location.income_level:.0%} · Literacy {location.literacy_rate:.0%}"
+            f"Elevation {location.elevation_m:.0f} m Â· "
+            f"Income {location.income_level:.0%} Â· Literacy {location.literacy_rate:.0%}"
         )
         self.statusBar().showMessage(f"Selected {location.name}")
+        if hasattr(self, "auto_assess") and self.auto_assess.isChecked():
+            QTimer.singleShot(0, self.run_assessment)
 
     def _on_hover_location(self, name: str) -> None:
         if self.location is None:
@@ -518,7 +558,7 @@ class MainWindow(QMainWindow):
         query = self.search.text().strip().casefold()
         matches = [loc for loc in self.dataset.locations if query in loc.name.casefold()]
         if not query or not matches:
-            self.statusBar().showMessage("No matching place in the loaded offline dataset")
+            self.statusBar().showMessage("No matching place in the loaded map dataset")
             self.search.setFocus()
             return
         self.map_view.select_location(matches[0], emit=True)
@@ -553,8 +593,7 @@ class MainWindow(QMainWindow):
         self.map_view.toggle_multi_hazard(checked)
 
     def _reset_map_view(self) -> None:
-        self.map_view.resetTransform()
-        self.map_view.fitInView(self.map_view.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.map_view.reset_view()
 
     def _update_parameter_help(self) -> None:
         help_text = {
@@ -605,9 +644,18 @@ class MainWindow(QMainWindow):
         )
         self.location = loc
         self.assessment = assess(self.location, scenario)
+        self._assistant_context_revision += 1
+        # Assessment context is rebuilt from the latest result on every question;
+        # discard conversation snippets that could contradict the new result.
+        self._assistant_history.clear()
+        self._assistant_last_route = None
+        self._append_chat_message(
+            "system",
+            f"Assessment context refreshed Â· {loc.name} Â· {self.assessment.risk_level.value} risk Â· {self.assessment.overall_score:.0f}/100",
+        )
         self.map_view.show_assessment(self.assessment)
         self._show_result(self.assessment)
-        self.statusBar().showMessage(f"Assessment complete · {self.assessment.risk_level.value} risk")
+        self.statusBar().showMessage(f"Assessment complete Â· {self.assessment.risk_level.value} risk")
 
     def _show_result(self, result: Assessment) -> None:
         color = RISK_COLORS[result.risk_level].name()
@@ -615,7 +663,7 @@ class MainWindow(QMainWindow):
         self.risk_badge.setStyleSheet(f"background:{color}; color:#000000; border: 1px solid #22252b; padding:8px; font-weight:800;")
         self.score.setText(f"{result.overall_score:.0f}<span style='font-size:14px;color:#8a8f98'>/100</span>")
         ci = int(result.confidence_interval * 100)
-        self.confidence.setText(f"{ci}% confidence: {result.confidence_lower:.0f}–{result.confidence_upper:.0f} (σ={result.mc_std:.1f}, n={result.mc_samples})")
+        self.confidence.setText(f"{ci}% confidence: {result.confidence_lower:.0f}â€“{result.confidence_upper:.0f} (Ïƒ={result.mc_std:.1f}, n={result.mc_samples})")
         self.weights_label.setText(f"Weights: H={result.scenario.weight_hazard:.2f} E={result.scenario.weight_exposure:.2f} V={result.scenario.weight_vulnerability:.2f}")
         self.metrics["Hazard"].setValue(round(result.hazard_score))
         self.metrics["Exposure"].setValue(round(result.exposure_score))
@@ -631,17 +679,280 @@ class MainWindow(QMainWindow):
                 color = "#d9534f"  # red
             bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border: none; border-radius: 3px; }}")
         impact_text = (
-            f"Estimated affected radius: {result.affected_radius_km:.1f} km · "
-            f"People affected: {result.people_affected:,} · "
-            f"Estimated property loss: ₹{result.property_loss_inr:,.0f}"
+            f"Estimated affected radius: {result.affected_radius_km:.1f} km Â· "
+            f"People affected: {result.people_affected:,} Â· "
+            f"Estimated property loss: â‚¹{result.property_loss_inr:,.0f}"
         )
         self.summary.setText(result.summary + " " + impact_text)
-        self.actions.setText("<b>Suggested actions</b><br>• " + "<br>• ".join(result.recommendations))
+        self.actions.setText("<b>Suggested actions</b><br>â€¢ " + "<br>â€¢ ".join(result.recommendations))
         self._generate_suggestions(result)
         self._start_pulse_animation()
 
         # Push to analysis tab
         self.analysis_panel.update_assessment(result, self.location)
+
+    def _answer_question(self) -> None:
+        question = self.assistant_question.text().strip()
+        if not question or (hasattr(self, "_assistant_worker") and self._assistant_worker.isRunning()):
+            return
+        self.assistant_question.clear()
+        if self._is_time_question(question):
+            self._append_assistant_turn(question, self._assessment_time_answer())
+            return
+        if self._is_evacuation_question(question):
+            self._append_assistant_turn(question, self._evacuation_answer())
+            return
+        if "shelter" in question.casefold():
+            self._append_assistant_turn(question, self._shelter_data_answer(question))
+            return
+        self._append_chat_message("you", question)
+        self._assistant_pending_question = question
+        self._assistant_pending_revision = self._assistant_context_revision
+        self.assistant_button.setText("Thinkingâ€¦")
+        self.assistant_button.setEnabled(False)
+        self.assistant_worker = AssistantWorker(question, self._assistant_context(question), self)
+        self._assistant_worker = self.assistant_worker
+        self.assistant_worker.answered.connect(self._finish_assistant_turn)
+        self.assistant_worker.finished.connect(self._assistant_ready)
+        self.assistant_worker.start()
+
+    @staticmethod
+    def _is_time_question(question: str) -> bool:
+        q = question.casefold()
+        return "time of day" in q or ("time" in q and any(word in q for word in ("assessment", "conducted", "run")))
+
+    def _assessment_time_answer(self) -> str:
+        loc = self.assessment.location if self.assessment else self.location
+        configured_time = f"{loc.time_of_day:02d}:00" if loc else f"{self.time_of_day.value():02d}:00"
+        if not self.assessment:
+            return f"No assessment has been run. The scenario time is set to {configured_time}."
+        return f"The assessment used the configured time-of-day input: {configured_time}."
+
+    @staticmethod
+    def _is_evacuation_question(question: str) -> bool:
+        q = question.casefold()
+        return (
+            "evacuat" in q
+            or "safe place" in q
+            or "where is safe" in q
+            or "where is it safe" in q
+            or "where should i go" in q
+            or "where do i go" in q
+            or ("where" in q and any(word in q for word in ("go", "head", "evacuat", "safe")))
+            or ("shelter" in q and any(word in q for word in ("should", "go to", "nearest", "closest", "near me", "where")))
+        )
+
+    def _shelter_data_answer(self, question: str) -> str:
+        shelters = [
+            f for f in (self.dataset.features if self.dataset else [])
+            if (f.get("geometry") or {}).get("type") == "Point" and (f.get("properties") or {}).get("shelter_type")
+        ] or shelters_dataset().features
+        q = question.casefold()
+        if not shelters:
+            return "No shelter records are present in the current map data."
+        if any(term in q for term in ("how many", "count", "number of")):
+            return f"The map data lists {len(shelters)} shelters. These records are not live-verified."
+        ignored = {"shelter", "capacity", "contact", "address", "listed", "please", "what", "where", "which", "tell", "about", "nearest", "closest"}
+        query_words = {word for word in q.replace("?", " ").replace(",", " ").split() if len(word) > 3 and word not in ignored}
+        matches = []
+        for feature in shelters:
+            props = feature.get("properties") or {}
+            name = props.get("name", "Unnamed shelter")
+            score = len(query_words.intersection(name.casefold().split()))
+            if score:
+                matches.append((score, feature))
+        if matches:
+            feature = max(matches, key=lambda item: item[0])[1]
+            props = feature.get("properties") or {}
+            return (
+                f"{props.get('name', 'Unnamed shelter')}: {props.get('address', 'address not listed')}; "
+                f"capacity {props.get('capacity', 'not listed')}; contact {props.get('contact', 'not listed')}."
+            )
+        names = "; ".join((f.get("properties") or {}).get("name", "Unnamed shelter") for f in shelters)
+        return f"The bundled map lists {len(shelters)} shelters: {names}. Records are not live-verified."
+
+    def _evacuation_answer(self) -> str:
+        start = self.location or (self.assessment.location if self.assessment else None)
+        if not start:
+            return "Select your location on the map first so I can find the nearest listed shelter."
+        shelter_features = [
+            f for f in (self.dataset.features if self.dataset else [])
+            if (f.get("geometry") or {}).get("type") == "Point"
+            and (f.get("properties") or {}).get("shelter_type")
+        ]
+        if not shelter_features:
+            shelter_features = shelters_dataset().features
+        if not shelter_features:
+            return "No listed shelter data is available. I can't name an evacuation destination."
+
+        start_point = (start.longitude, start.latitude)
+        distances = []
+        for feature in shelter_features:
+            xy = (feature["geometry"]["coordinates"][0], feature["geometry"]["coordinates"][1])
+            dist = self.map_view._haversine_km(start_point, xy)
+            distances.append((dist, feature))
+        straight_km, nearest = min(distances, key=lambda entry: entry[0])
+        route = self.map_view.compute_evacuation_route(start, shelter_features)
+        has_roads = any((f.get("geometry") or {}).get("type") in ("LineString", "MultiLineString")
+                        for f in (self.dataset.features if self.dataset else []))
+        if route and has_roads:
+            nearest = route["shelter"]
+            distance_text = f"about {route['distance_km']:.1f} km by the stored road network"
+            self._assistant_last_route = {"destination": (nearest.get("properties") or {}).get("name"), "distance_km": round(route["distance_km"], 1), "basis": "stored road network"}
+            self.map_view.draw_evacuation_route(route)
+        else:
+            distance_text = f"about {straight_km:.1f} km straight-line; no mapped road route is available"
+            self._assistant_last_route = {"destination": (nearest.get("properties") or {}).get("name"), "distance_km": round(straight_km, 1), "basis": "straight-line only; no mapped route"}
+
+        props = nearest.get("properties") or {}
+        address = props.get("address", "address not listed")
+        details = [f"Nearest listed shelter: {props.get('name', 'Unnamed shelter')} â€” {address}.", distance_text + "."]
+        if props.get("capacity") is not None:
+            details.append(f"Listed capacity: {props['capacity']}.")
+        if props.get("contact"):
+            details.append(f"Listed contact: {props['contact']}.")
+        details.append("This is the nearest shelter in the app data; follow current local-authority/emergency-service instructions.")
+        return " ".join(details)
+
+    def _assistant_context(self, question: str = "") -> str:
+        lines = [
+            "CrisisMap Pune disaster assessment application. Use the latest assessment as the source of truth.",
+            "Assessment method: calculate hazard by disaster-specific factors, exposure from local population density, "
+            "and vulnerability from community/building factors. Blend the three 0-100 scores with the assessment's "
+            "AHP weights. When default weights are used, the app adjusts them for hazard, location, and season. "
+            "A 500-run Monte Carlo calculation perturbs hazard/vulnerability by Â±15% and exposure by Â±10% to estimate "
+            "a score interval. Radius is 0.3 + 0.3Ã—intensity + 0.1Ã—min(duration hours, 24) km. People estimate is "
+            "circular impact area Ã— population-density input Ã— 5,000 people/kmÂ² Ã— intensity fraction. Property loss "
+            "is impact area Ã— â‚¹500,000,000/kmÂ² Ã— min(10%, risk fraction Ã— intensity fraction Ã— 20% Ã— (1 âˆ’ building quality Ã— 0.4) "
+            "Ã— (1 + informal-settlement share Ã— 0.5)); all impact values are rough "
+            "scenario estimates, not forecasts or observed losses."
+        ]
+        if self.dataset:
+            ward_count = sum((f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon") for f in self.dataset.features)
+            road_count = sum((f.get("geometry") or {}).get("type") in ("LineString", "MultiLineString") for f in self.dataset.features)
+            lines.append(f"Loaded map: {self.dataset.name}; {ward_count} area features; {road_count} road features. Source: {self.dataset.source}.")
+        loc = self.location or (self.assessment.location if self.assessment else None)
+        if loc:
+            lines.append(
+                f"Selected: {loc.name}, {loc.latitude:.5f},{loc.longitude:.5f}; elevation {loc.elevation_m:.0f}m; "
+                f"vegetation {loc.vegetation:.2f}; density {loc.population_density:.2f}; soil softness {loc.soil_softness:.2f}; "
+                f"water distance {loc.water_distance:.2f}; building quality {loc.building_quality:.2f}; "
+                f"configured time of day {loc.time_of_day:02d}:00; season {loc.season}."
+            )
+            lines.append("Full selected-location inputs: " + json.dumps({
+                "name": loc.name,
+                "elevation_m": loc.elevation_m,
+                "vegetation": loc.vegetation,
+                "population_density": loc.population_density,
+                "soil_softness": loc.soil_softness,
+                "water_distance": loc.water_distance,
+                "income_level": loc.income_level,
+                "literacy_rate": loc.literacy_rate,
+                "elderly_share": loc.elderly_share,
+                "child_share": loc.child_share,
+                "disability_share": loc.disability_share,
+                "hospital_capacity": loc.hospital_capacity,
+                "fire_station_proximity": loc.fire_station_proximity,
+                "shelter_capacity": loc.shelter_capacity,
+                "road_density": loc.road_density,
+                "informal_settlement": loc.informal_settlement,
+                "building_quality": loc.building_quality,
+                "roof_type_score": loc.roof_type_score,
+                "time_of_day": loc.time_of_day,
+                "season": loc.season,
+            }, separators=(",", ":")))
+        q = question.casefold()
+        if any(word in q for word in ("shelter", "evacuat", "safe place")):
+            shelters = [
+                f for f in (self.dataset.features if self.dataset else [])
+                if (f.get("geometry") or {}).get("type") == "Point" and (f.get("properties") or {}).get("shelter_type")
+            ] or shelters_dataset().features
+            shelter_facts = []
+            for feature in shelters:
+                props = feature.get("properties") or {}
+                coord = (feature.get("geometry") or {}).get("coordinates", [])
+                shelter_facts.append(
+                    f"{props.get('name', 'Unnamed')}; {props.get('address', 'no address')}; "
+                    f"capacity {props.get('capacity', 'unknown')}; contact {props.get('contact', 'unknown')}; "
+                    f"coordinates {coord}."
+                )
+            lines.append(f"Shelter records in loaded/bundled data: {len(shelters)}. " + " ".join(shelter_facts))
+            if loc:
+                road_count = sum((f.get("geometry") or {}).get("type") in ("LineString", "MultiLineString") for f in (self.dataset.features if self.dataset else []))
+                lines.append(f"Road-network features available: {road_count}.")
+                route = self.map_view.compute_evacuation_route(loc, shelters)
+                if route:
+                    props = route["shelter"].get("properties") or {}
+                    self._assistant_last_route = {
+                        "destination": props.get("name", "Unnamed shelter"),
+                        "address": props.get("address", "address not listed"),
+                        "distance_km": round(route["distance_km"], 1),
+                        "basis": "stored road network",
+                    }
+        a = self.assessment
+        if a:
+            s = a.scenario
+            lines.append(
+                f"Assessment: {s.disaster.value}, intensity {s.intensity:.1f}/10, duration {s.duration_hours:g}h, preparedness {s.preparedness:.0%}; "
+                f"risk {a.risk_level.value}, score {a.overall_score:.1f}/100; hazard {a.hazard_score:.1f}, exposure {a.exposure_score:.1f}, vulnerability {a.vulnerability_score:.1f}; "
+                f"score interval {a.confidence_lower:.1f}-{a.confidence_upper:.1f}; affected radius estimate {a.affected_radius_km:.1f}km; "
+                f"people estimate {a.people_affected}; property-loss estimate INR {a.property_loss_inr:.0f}."
+            )
+            lines.append("Complete latest assessment record: " + json.dumps(a.to_dict(), separators=(",", ":")))
+            if any(word in q for word in ("factor", "why", "driver", "cause", "contribut")):
+                lines.append("Hazard factors: " + json.dumps(a.hazard_factors or {}, separators=(",", ":")))
+                lines.append("Vulnerability factors: " + json.dumps(a.vulnerability_factors or {}, separators=(",", ":")))
+            if any(word in q for word in ("recommend", "suggest", "action", "should", "prepare")):
+                lines.append("Recommendations: " + " ".join(a.recommendations))
+        else:
+            lines.append("Assessment status: NOT RUN. Do not claim a risk score or assessment result.")
+            lines.append(
+                f"Current scenario inputs only: {self.disaster.currentText()}, intensity {self.intensity.value():g}/10, "
+                f"duration {self.duration.value():g}h, preparedness {self.preparedness.value()}%."
+            )
+        if self._assistant_history:
+            previous_q, previous_a = self._assistant_history[-1]
+            lines.append(f"Previous conversation: Q {previous_q[:100]} A {previous_a[:140]}")
+        if getattr(self, "_assistant_last_route", None):
+            lines.append(f"Most recently computed evacuation route: {self._assistant_last_route}.")
+        return "\n".join(lines)
+
+    def _finish_assistant_turn(self, answer: str) -> None:
+        if getattr(self, "_assistant_pending_revision", self._assistant_context_revision) != self._assistant_context_revision:
+            answer = "The assessment changed while I was answering. Please ask again for an answer based on the latest results."
+        self._append_chat_message("assistant", answer)
+        self._assistant_history.append((self._assistant_pending_question, answer))
+        self._assistant_history = self._assistant_history[-4:]
+
+    def _assistant_ready(self) -> None:
+        self.assistant_button.setEnabled(True)
+        self.assistant_button.setText("Ask")
+
+    def _append_assistant_turn(self, question: str, answer: str) -> None:
+        self._append_chat_message("you", question)
+        self._append_chat_message("assistant", answer)
+        self._assistant_history.append((question, answer))
+        self._assistant_history = self._assistant_history[-4:]
+
+    def _append_chat_message(self, role: str, message: str) -> None:
+        styles = {
+            "system": ("SYSTEM", "#172335", "#a9c8f4", "left"),
+            "you": ("YOU", "#163a5c", "#e7f3ff", "right"),
+            "assistant": ("CRISISMAP AI", "#18231f", "#e7f8eb", "left"),
+        }
+        label, background, foreground, alignment = styles[role]
+        safe_message = escape(message).replace("\n", "<br>")
+        bubble = (
+            f'<table width="100%" cellspacing="0"><tr><td align="{alignment}">'
+            f'<table bgcolor="{background}" cellpadding="10"><tr><td>'
+            f'<font color="{foreground}"><b>{label}</b><br>{safe_message}</font>'
+            "</td></tr></table></td></tr></table><br>"
+        )
+        cursor = self.assistant_chat.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertHtml(bubble)
+        self.assistant_chat.setTextCursor(cursor)
+        self.assistant_chat.ensureCursorVisible()
 
     def _generate_suggestions(self, result: Assessment) -> None:
         suggestions = []
@@ -663,67 +974,67 @@ class MainWindow(QMainWindow):
             suggestions.append("Shut off utilities if safe to do so before leaving the area.")
 
         if loc.elevation_m < 50:
-            suggestions.append(f"Low elevation ({loc.elevation_m:.0f} m) increases flood exposure — prioritize higher ground routes.")
+            suggestions.append(f"Low elevation ({loc.elevation_m:.0f} m) increases flood exposure â€” prioritize higher ground routes.")
         if loc.vegetation > 0.6:
-            suggestions.append("High vegetation density raises wildfire risk — create defensible space around structures.")
+            suggestions.append("High vegetation density raises wildfire risk â€” create defensible space around structures.")
         if loc.population_density > 0.7:
-            suggestions.append("High population density — plan staggered evacuation to avoid congestion.")
+            suggestions.append("High population density â€” plan staggered evacuation to avoid congestion.")
         if loc.informal_settlement > 0.3:
-            suggestions.append("High informal settlement density — prioritize structural reinforcement and community alerts.")
+            suggestions.append("High informal settlement density â€” prioritize structural reinforcement and community alerts.")
         if loc.hospital_capacity < 0.3:
-            suggestions.append("Low hospital capacity — pre-identify alternate medical facilities.")
+            suggestions.append("Low hospital capacity â€” pre-identify alternate medical facilities.")
         if loc.fire_station_proximity < 0.3:
-            suggestions.append("Fire station far away — ensure on-site fire suppression equipment.")
+            suggestions.append("Fire station far away â€” ensure on-site fire suppression equipment.")
         if loc.shelter_capacity < 0.3:
-            suggestions.append("Limited shelter capacity — coordinate with nearby municipalities.")
+            suggestions.append("Limited shelter capacity â€” coordinate with nearby municipalities.")
         if loc.building_quality < 0.4:
-            suggestions.append("Poor building quality — prioritize seismic retrofitting and wind bracing.")
+            suggestions.append("Poor building quality â€” prioritize seismic retrofitting and wind bracing.")
         if loc.time_of_day >= 22 or loc.time_of_day <= 6:
-            suggestions.append("Night-time scenario assumed — mobility is reduced; evacuate earlier.")
+            suggestions.append("Night-time scenario assumed â€” mobility is reduced; evacuate earlier.")
         if loc.season == "monsoon" and result.scenario.disaster is DisasterType.FLOOD:
-            suggestions.append("Monsoon season — expect amplified flood risk; monitor river levels continuously.")
+            suggestions.append("Monsoon season â€” expect amplified flood risk; monitor river levels continuously.")
 
         # Infrastructure resilience suggestions
         if loc.road_density < 0.4:
-            suggestions.append("Low road density may delay evacuation — identify alternative routes in advance.")
+            suggestions.append("Low road density may delay evacuation â€” identify alternative routes in advance.")
         if loc.hospital_capacity < 0.5:
-            suggestions.append("Limited hospital capacity — coordinate with nearby medical centers for surge capacity.")
+            suggestions.append("Limited hospital capacity â€” coordinate with nearby medical centers for surge capacity.")
         if loc.fire_station_proximity < 0.4:
-            suggestions.append("Fire station beyond optimal range — ensure on-site fire suppression equipment.")
+            suggestions.append("Fire station beyond optimal range â€” ensure on-site fire suppression equipment.")
 
         # Utility and service suggestions
         if result.scenario.disaster is DisasterType.EARTHQUAKE:
             suggestions.append("Post-earthquake: inspect gas lines, electrical systems, and water mains before re-entry.")
-            suggestions.append("Expect aftershocks — keep evacuation routes clear for at least 24 hours.")
+            suggestions.append("Expect aftershocks â€” keep evacuation routes clear for at least 24 hours.")
         if result.scenario.disaster is DisasterType.FLOOD:
-            suggestions.append("Avoid walking or driving through floodwaters — as little as 15 cm can move a vehicle.")
+            suggestions.append("Avoid walking or driving through floodwaters â€” as little as 15 cm can move a vehicle.")
             suggestions.append("Boil water or use purification tablets until authorities declare supply safe.")
         if result.scenario.disaster is DisasterType.WILDFIRE:
-            suggestions.append("Monitor air quality — wear N95 masks if smoke levels are high.")
+            suggestions.append("Monitor air quality â€” wear N95 masks if smoke levels are high.")
             suggestions.append("Create a defensible space of at least 9 meters around structures.")
 
         # Socioeconomic and community suggestions
         if loc.informal_settlement > 0.4:
-            suggestions.append("High informal settlement density — prioritize community-based early warning systems.")
+            suggestions.append("High informal settlement density â€” prioritize community-based early warning systems.")
         if loc.population_density > 0.75:
-            suggestions.append("Very high population density — establish multiple assembly points to prevent crowding.")
+            suggestions.append("Very high population density â€” establish multiple assembly points to prevent crowding.")
         if loc.elderly_share > 0.15:
-            suggestions.append("Significant elderly population — prioritize mobility assistance in evacuation plans.")
+            suggestions.append("Significant elderly population â€” prioritize mobility assistance in evacuation plans.")
         if loc.child_share > 0.2:
-            suggestions.append("High child population — coordinate with schools for child-safe evacuation procedures.")
+            suggestions.append("High child population â€” coordinate with schools for child-safe evacuation procedures.")
 
         # Economic impact suggestions
         if result.overall_score > 60:
-            suggestions.append("High overall risk — consider business continuity planning and asset protection.")
+            suggestions.append("High overall risk â€” consider business continuity planning and asset protection.")
             suggestions.append("Document property and assets with photos before the event for insurance claims.")
 
         # Environmental suggestions
         if loc.vegetation > 0.7:
-            suggestions.append("Dense vegetation area — coordinate with forest department for firebreak maintenance.")
+            suggestions.append("Dense vegetation area â€” coordinate with forest department for firebreak maintenance.")
         if loc.water_distance < 0.2:
-            suggestions.append("Close proximity to water body — monitor water levels and erosion risk during heavy rain.")
+            suggestions.append("Close proximity to water body â€” monitor water levels and erosion risk during heavy rain.")
 
-        self.suggestions.setText("<b>Suggestions</b><br>• " + "<br>• ".join(suggestions))
+        self.suggestions.setText("<b>Suggestions</b><br>â€¢ " + "<br>â€¢ ".join(suggestions))
 
     def _start_pulse_animation(self) -> None:
         if self._anim_timer:
@@ -782,7 +1093,7 @@ class MainWindow(QMainWindow):
             ("Vulnerability Score", before.vulnerability_score, after.vulnerability_score),
             ("Affected Radius (km)", before.affected_radius_km, after.affected_radius_km),
             ("People Affected", before.people_affected, after.people_affected),
-            ("Property Loss (₹)", before.property_loss_inr, after.property_loss_inr),
+            ("Property Loss (â‚¹)", before.property_loss_inr, after.property_loss_inr),
         ]
         for name, b, a in metrics:
             delta = a - b
@@ -809,7 +1120,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "risk_badge"):
             self.risk_badge.setText("NO RESULT")
             self.risk_badge.setStyleSheet("")
-            self.score.setText("—")
+            self.score.setText("â€”")
             self.confidence.setText("")
             self.weights_label.setText("")
             for bar in self.metrics.values():
@@ -959,16 +1270,16 @@ class MainWindow(QMainWindow):
 </style>
 </head>
 <body>
-  <div class="print-note">CrisisMap — Print-friendly Report. Print with background colors enabled.</div>
+  <div class="print-note">CrisisMap â€” Print-friendly Report. Print with background colors enabled.</div>
 
   <div class="header">
     <h1>CRISIS MAP</h1>
-    <div class="subtitle">Offline Disaster Impact Assessment Report</div>
+    <div class="subtitle">Pune Disaster Impact Assessment Report</div>
   </div>
 
   <div class="info-grid">
     <div class="info-card"><div class="label">Location</div><div class="value">{loc.name}</div></div>
-    <div class="info-card"><div class="label">Coordinates</div><div class="value">{loc.latitude:.4f}°N, {loc.longitude:.4f}°E</div></div>
+    <div class="info-card"><div class="label">Coordinates</div><div class="value">{loc.latitude:.4f}Â°N, {loc.longitude:.4f}Â°E</div></div>
     <div class="info-card"><div class="label">Elevation</div><div class="value">{loc.elevation_m:.0f} m</div></div>
     <div class="info-card"><div class="label">Disaster</div><div class="value">{sc.disaster.value}</div></div>
     <div class="info-card"><div class="label">Intensity</div><div class="value">{sc.intensity:.1f} / 10</div></div>
@@ -981,13 +1292,13 @@ class MainWindow(QMainWindow):
 
   <div style="text-align: center; margin-bottom: 25px;">
     <span class="risk-badge" style="background-color: {risk_color};">
-      {a.risk_level.value.upper()} RISK — Score: {a.overall_score:.0f}/100
+      {a.risk_level.value.upper()} RISK â€” Score: {a.overall_score:.0f}/100
     </span>
   </div>
 
   <p><b>Summary:</b> {a.summary}</p>
-  <p><b>Affected Radius:</b> {a.affected_radius_km:.1f} km &nbsp;|&nbsp; <b>People Affected:</b> {a.people_affected:,} &nbsp;|&nbsp; <b>Estimated Property Loss:</b> ₹{a.property_loss_inr:,.0f}</p>
-  <p><b>Confidence:</b> {int(a.confidence_interval * 100)}% interval: {a.confidence_lower:.0f}–{a.confidence_upper:.0f} (σ={a.mc_std:.1f}, n={a.mc_samples})</p>
+  <p><b>Affected Radius:</b> {a.affected_radius_km:.1f} km &nbsp;|&nbsp; <b>People Affected:</b> {a.people_affected:,} &nbsp;|&nbsp; <b>Estimated Property Loss:</b> â‚¹{a.property_loss_inr:,.0f}</p>
+  <p><b>Confidence:</b> {int(a.confidence_interval * 100)}% interval: {a.confidence_lower:.0f}â€“{a.confidence_upper:.0f} (Ïƒ={a.mc_std:.1f}, n={a.mc_samples})</p>
 
   <table class="metrics-table">
     <thead><tr><th>Component</th><th>Score</th><th>Weight</th></tr></thead>
@@ -1014,7 +1325,7 @@ class MainWindow(QMainWindow):
   </div>
 
   <div class="footer">
-    CrisisMap — Offline Disaster Impact Assessment · Educational tool, not for emergency decisions · No network access required
+    CrisisMap â€” Educational tool, not for emergency decisions
   </div>
 </body>
 </html>"""
@@ -1101,8 +1412,6 @@ class MainWindow(QMainWindow):
         key = event.key()
         if key == Qt.Key.Key_F1:
             self.show_about()
-        elif key == Qt.Key.Key_F2:
-            self.show_offline_info()
         elif key == Qt.Key.Key_F5:
             if self.location:
                 self.run_assessment()
@@ -1137,7 +1446,7 @@ class MainWindow(QMainWindow):
                     shelters.append(feature)
 
         if not shelters:
-            QMessageBox.information(self, "No shelters", "Load Pune shelters first via Map → Load Pune shelters.")
+            QMessageBox.information(self, "No shelters", "Load Pune shelters first via Map â†’ Load Pune shelters.")
             return
 
         route = self.map_view.compute_evacuation_route(self.location, shelters)
@@ -1149,58 +1458,14 @@ class MainWindow(QMainWindow):
         shelter_name = route["shelter"]["properties"].get("name", "Unknown Shelter")
         capacity = route["shelter"]["properties"].get("capacity", "N/A")
         self.statusBar().showMessage(
-            f"Evacuation route to {shelter_name} (capacity: {capacity}) — {route['distance_km']:.1f} km"
+            f"Evacuation route to {shelter_name} (capacity: {capacity}) â€” {route['distance_km']:.1f} km"
         )
 
     def show_about(self) -> None:
         QMessageBox.about(
             self,
             "About CrisisMap",
-            "<b>CrisisMap 0.3.0</b><br><br>Offline disaster-impact assessment with multi-factor hazard modeling, "
+            "<b>CrisisMap 0.3.0</b><br><br>Pune disaster-impact assessment with multi-factor hazard modeling, "
             "AHP weighting, Monte Carlo uncertainty, and real Pune map data.<br><br>"
-            "Assessment only — not prediction or emergency advice.",
-        )
-
-    def show_offline_status(self) -> None:
-        """Offline audit: lists every local resource with file sizes to justify offline capability."""
-        lines = ["Offline Resource Audit", "=" * 40, ""]
-        data_dir = Path(__file__).parent.parent / "resources" / "data"
-        total_bytes = 0
-
-        lines.append("Bundled map data (all local):")
-        for fname in ["demo_region.geojson", "pune_wards.geojson"]:
-            fpath = data_dir / fname
-            if fpath.exists():
-                size_kb = fpath.stat().st_size / 1024
-                total_bytes += fpath.stat().st_size
-                lines.append(f"  ✓ {fname} — {size_kb:.1f} KB")
-            else:
-                lines.append(f"  ✗ {fname} — MISSING")
-
-        lines.append("")
-        lines.append("Python modules (all local, no external APIs):")
-        modules = [
-            ("crisismap.simulation", "Hazard/vulnerability engine"),
-            ("crisismap.export_pdf", "PDF report generator"),
-            ("crisismap.export", "JSON export"),
-            ("crisismap.models", "Data models"),
-            ("crisismap.data_repository", "GeoJSON loader"),
-        ]
-        for mod_name, desc in modules:
-            try:
-                __import__(mod_name)
-                lines.append(f"  ✓ {mod_name} — {desc}")
-            except Exception:
-                lines.append(f"  ✗ {mod_name} — ERROR")
-
-        lines.append("")
-        lines.append("External dependencies: NONE (no API keys, no cloud services, no telemetry)")
-        lines.append("Network access: NOT REQUIRED — works fully offline (air-gapped)")
-        total_mb = total_bytes / (1024 * 1024)
-        lines.append(f"Total bundled data: {total_mb:.2f} MB")
-
-        QMessageBox.information(
-            self,
-            "Offline Audit — Why this works without internet",
-            "\n".join(lines),
+            "Assessment only â€” not prediction or emergency advice.",
         )

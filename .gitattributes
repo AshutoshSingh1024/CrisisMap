@@ -1,0 +1,1 @@
+src/crisismap/resources/model/qwen2.5-0.5b-instruct/model.safetensors filter=lfs diff=lfs merge=lfs -text

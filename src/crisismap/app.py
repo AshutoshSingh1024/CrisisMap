@@ -27,10 +27,6 @@ QMenu::separator { height: 1px; margin: 4px 0px; background: #1a1d23; }
 #brand { font-size: 18px; font-weight: 800; letter-spacing: 0.5px; color: #e8eaed; }
 #subtitle { color: #8a8f98; font-size: 11px; }
 
-/* Offline banner */
-#offlineBanner { background: #1e7d32; color: #ffffff; font-weight: 700; padding: 6px 14px; border-radius: 6px; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
-#offlineNotice { color: #64b5f6; font-size: 9px; font-style: italic; margin-top: 2px; }
-
 /* Panels */
 #panel { background: #12151a; border: 1px solid #1a1d23; border-radius: 10px; padding: 10px; }
 #sideScroll { border: none; background: transparent; }

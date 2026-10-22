@@ -118,7 +118,6 @@ class MapView(QGraphicsView):
         self._bounds = self._calculate_bounds(dataset.features, use_polygons_only=True)
         self._draw_features(dataset.features)
         self._draw_shelter_markers(dataset.features)
-        self._draw_grid()
         self.scene().setSceneRect(self.scene().itemsBoundingRect().adjusted(-30, -30, 30, 30))
         self.resetTransform()
         self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)

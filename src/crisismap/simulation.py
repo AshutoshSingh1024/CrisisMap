@@ -236,7 +236,7 @@ def _monte_carlo(
     vuln_fn,
     samples: int = 500,
     seed: int = 42,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, float]:
     rng = random.Random(seed)
     scores = []
     for _ in range(samples):
@@ -332,8 +332,12 @@ def assess(location: LocationProfile, scenario: Scenario) -> Assessment:
     people_affected = int(area_sq_km * base_density * intensity_factor)
 
     property_value_per_sq_km = 500_000_000  # ₹50 crore per sq km (urban Pune baseline)
-    damage_factor = (overall / 100) * (1 - location.building_quality * 0.4)
+    # Risk score is not a damage percentage. Use a conservative intensity-adjusted
+    # loss fraction and cap it so the whole impact zone is never treated as destroyed.
+    damage_factor = (overall / 100) * intensity_factor * 0.2
+    damage_factor *= (1 - location.building_quality * 0.4)
     damage_factor *= (1 + location.informal_settlement * 0.5)
+    damage_factor = min(damage_factor, 0.10)
     property_loss_inr = area_sq_km * property_value_per_sq_km * damage_factor
 
     summary = (

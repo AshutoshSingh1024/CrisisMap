@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from ..models import Assessment, LocationProfile
 from .chart_widgets import (
     BarChartWidget,
+    ConfidenceRangeWidget,
     RiskBreakdownWidget,
     RiskGaugeWidget,
     VulnerabilityRadarWidget,
@@ -61,41 +62,24 @@ class MetricCard(QFrame):
 
 
 class LocationInfoCard(QFrame):
-    """Card showing selected location details."""
+    """Minimal locality label for the assessment."""
 
     def __init__(self, location: LocationProfile, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("locationCard")
-        self.setMinimumHeight(130)
-        layout = QGridLayout(self)
+        self.setFixedHeight(90)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 10)
-        layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(5)
-
-        fields = [
-            ("Name", location.name),
-            ("Latitude", f"{location.latitude:.4f}\u00b0N"),
-            ("Longitude", f"{location.longitude:.4f}\u00b0E"),
-            ("Elevation", f"{location.elevation_m:.0f} m"),
-            ("Vegetation", f"{location.vegetation:.0%}"),
-            ("Population Density", f"{location.population_density:.0%}"),
-            ("Soil Softness", f"{location.soil_softness:.0%}"),
-            ("Water Distance", f"{location.water_distance:.0%}"),
-        ]
-
-        for i, (key, val) in enumerate(fields):
-            row = i // 2
-            col = (i % 2) * 2
-            key_label = QLabel(key)
-            key_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            key_label.setStyleSheet("color: #8a8f98;")
-            key_label.setWordWrap(True)
-            val_label = QLabel(val)
-            val_label.setFont(QFont("Segoe UI", 10))
-            val_label.setStyleSheet("color: #e8eaed;")
-            val_label.setWordWrap(True)
-            layout.addWidget(key_label, row, col)
-            layout.addWidget(val_label, row, col + 1)
+        layout.setSpacing(5)
+        heading = QLabel("ASSESSED AREA")
+        heading.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        heading.setStyleSheet("color: #8a8f98;")
+        layout.addWidget(heading)
+        name = QLabel(location.name)
+        name.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        name.setStyleSheet("color: #e8eaed;")
+        name.setWordWrap(True)
+        layout.addWidget(name)
 
 
 class AnalysisPanel(QScrollArea):
@@ -113,7 +97,7 @@ class AnalysisPanel(QScrollArea):
         self._layout.setSpacing(16)
 
         # Header
-        self._header_label = QLabel("Detailed Risk Analysis")
+        self._header_label = QLabel("Risk Dashboard")
         self._header_label.setObjectName("analysisHeader")
         self._header_label.setFont(QFont("Segoe UI", 17, QFont.Weight.Bold))
         self._header_label.setStyleSheet("color: #e8eaed;")
@@ -124,8 +108,18 @@ class AnalysisPanel(QScrollArea):
         self._metrics_row.setSpacing(10)
         self._layout.addLayout(self._metrics_row)
 
+        self._interpretation = QLabel("Run an assessment to see the main drivers and scenario assumptions.")
+        self._interpretation.setWordWrap(True)
+        self._interpretation.setStyleSheet("background:#121a24; border:1px solid #263447; border-radius:8px; padding:12px; color:#dce6f2;")
+        self._layout.addWidget(self._interpretation)
+
+        self._impact_summary = QLabel("Impact estimates and recommendations will appear here.")
+        self._impact_summary.setWordWrap(True)
+        self._impact_summary.setStyleSheet("background:#10151b; border:1px solid #26303b; border-radius:8px; padding:12px; color:#dce6f2;")
+        self._layout.addWidget(self._impact_summary)
+
         # Charts row - larger charts
-        self._charts_row = QHBoxLayout()
+        self._charts_row = QGridLayout()
         self._charts_row.setSpacing(12)
         self._layout.addLayout(self._charts_row)
 
@@ -156,7 +150,10 @@ class AnalysisPanel(QScrollArea):
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
+        self._table.setWordWrap(True)
+        self._table.setMinimumHeight(420)
         self._table.verticalHeader().setDefaultSectionSize(28)
+        self._table.horizontalHeader().setMinimumSectionSize(130)
         table_layout.addWidget(self._table)
 
         self._bottom_row.addWidget(table_container, 2)
@@ -167,18 +164,20 @@ class AnalysisPanel(QScrollArea):
         self.gauge = RiskGaugeWidget()
         self.bar_chart = BarChartWidget()
         self.breakdown = RiskBreakdownWidget()
+        self.confidence_chart = ConfidenceRangeWidget()
         self.radar = VulnerabilityRadarWidget()
 
-        self._charts_row.addWidget(self.gauge, 1)
-        self._charts_row.addWidget(self.bar_chart, 1)
-        self._charts_row.addWidget(self.breakdown, 1)
-        self._charts_row.addWidget(self.radar, 1)
+        self._charts_row.addWidget(self.gauge, 0, 0)
+        self._charts_row.addWidget(self.bar_chart, 0, 1)
+        self._charts_row.addWidget(self.confidence_chart, 1, 0)
+        self._charts_row.addWidget(self.radar, 1, 1)
 
     def clear(self) -> None:
         """Reset all charts and metrics to empty state."""
         self.gauge.set_risk(0, "LOW")
         self.bar_chart.set_values({})
         self.breakdown.set_values(0.0, 0.0, 0.0)
+        self.confidence_chart.set_range(0, 100, 0)
         self.radar.set_values({})
 
         while self._metrics_row.count():
@@ -187,6 +186,8 @@ class AnalysisPanel(QScrollArea):
                 item.widget().deleteLater()
 
         self._table.setRowCount(0)
+        self._interpretation.setText("Run an assessment to see the main drivers and scenario assumptions.")
+        self._impact_summary.setText("Impact estimates and recommendations will appear here.")
 
     def update_assessment(self, assessment: Assessment, location: LocationProfile) -> None:
         """Populate all charts and metrics from an assessment result."""
@@ -206,31 +207,39 @@ class AnalysisPanel(QScrollArea):
             "HIGH": "#d9534f",
             "EXTREME": "#b00020",
         }.get(assessment.risk_level.value, "#64b5f6")
+        scenario = assessment.scenario
+        drivers = sorted(
+            (("Hazard", assessment.hazard_score), ("Exposure", assessment.exposure_score),
+             ("Vulnerability", assessment.vulnerability_score)), key=lambda item: item[1], reverse=True
+        )
+        self._interpretation.setText(
+            f"<b>{location.name}</b>　·　{scenario.disaster.value} {scenario.intensity:.0f}/10 "
+            f"·　{scenario.duration_hours:g} h　·　Preparedness {scenario.preparedness:.0%}　·　"
+            f"Top driver: {drivers[0][0]}"
+        )
+        recommendations = "<br>".join(f"• {item}" for item in assessment.recommendations[:2])
+        self._impact_summary.setText(
+            f"<b>IMPACT ZONE</b>　{assessment.affected_radius_km:.1f} km　·　"
+            f"<b>MODEL ESTIMATES</b>　{assessment.people_affected:,} people　·　"
+            f"₹{assessment.property_loss_inr:,.0f}<br>{recommendations}"
+        )
 
         # Metric cards
         self._metrics_row.addWidget(MetricCard(
-            "Overall Risk Score", f"{assessment.overall_score:.0f}",
-            "Composite score / 100", risk_color,
+            "RISK SCORE", f"{assessment.overall_score:.0f}/100",
+            assessment.risk_level.value.upper(), risk_color,
         ), 1)
         self._metrics_row.addWidget(MetricCard(
-            "Risk Level", assessment.risk_level.value.upper(),
-            "Classification", risk_color,
+            f"{assessment.confidence_interval:.0%} SCORE RANGE", f"{assessment.confidence_lower:.0f}–{assessment.confidence_upper:.0f}",
+            f"σ {assessment.mc_std:.1f} · {assessment.mc_samples} runs", "#42a5f5",
         ), 1)
         self._metrics_row.addWidget(MetricCard(
-            "Confidence", f"{int(assessment.confidence_interval * 100)}%",
-            f"\u03c3={assessment.mc_std:.1f}", "#42a5f5",
+            "PEOPLE EXPOSED", f"{assessment.people_affected:,}",
+            "Scenario estimate", "#ffa726",
         ), 1)
         self._metrics_row.addWidget(MetricCard(
-            "Affected Radius", f"{assessment.affected_radius_km:.1f} km",
-            "Estimated impact area", "#ab47bc",
-        ), 1)
-        self._metrics_row.addWidget(MetricCard(
-            "People Affected", f"{assessment.people_affected:,}",
-            "Estimated exposure", "#ffa726",
-        ), 1)
-        self._metrics_row.addWidget(MetricCard(
-            "Property Loss", f"\u20b9{assessment.property_loss_inr:,.0f}",
-            "Estimated damage", "#ef5350",
+            "PROPERTY LOSS", f"\u20b9{assessment.property_loss_inr:,.0f}",
+            "Scenario estimate", "#ef5350",
         ), 1)
 
         # Charts
@@ -243,6 +252,7 @@ class AnalysisPanel(QScrollArea):
         self.breakdown.set_values(
             assessment.hazard_score, assessment.exposure_score, assessment.vulnerability_score,
         )
+        self.confidence_chart.set_range(assessment.confidence_lower, assessment.confidence_upper, assessment.overall_score)
 
         # Radar chart - vulnerability factors
         factors = {
@@ -258,9 +268,9 @@ class AnalysisPanel(QScrollArea):
         # Table
         self._table.setRowCount(0)
         rows = [
-            ("Physical Hazard", f"{assessment.hazard_score:.1f}", "Primary threat level"),
-            ("People Exposure", f"{assessment.exposure_score:.1f}", "Population at risk"),
-            ("Social Vulnerability", f"{assessment.vulnerability_score:.1f}", "Susceptibility"),
+            ("Physical Hazard", f"{assessment.hazard_score:.1f}/100", "Scenario hazard magnitude"),
+            ("People Exposure", f"{assessment.exposure_score:.1f}/100", "Estimated population exposure"),
+            ("Social Vulnerability", f"{assessment.vulnerability_score:.1f}/100", "Community susceptibility"),
             ("Elevation", f"{location.elevation_m:.0f} m", "Flood risk factor"),
             ("Vegetation", f"{location.vegetation:.0%}", "Wildfire fuel"),
             ("Population Density", f"{location.population_density:.0%}", "Exposure multiplier"),
@@ -271,6 +281,10 @@ class AnalysisPanel(QScrollArea):
             ("Fire Station Proximity", f"{location.fire_station_proximity:.0%}", "Fire response"),
             ("Shelter Capacity", f"{location.shelter_capacity:.0%}", "Evacuation capacity"),
         ]
+        for factor, value in (assessment.hazard_factors or {}).items():
+            rows.append((f"Hazard · {factor.replace('_', ' ').title()}", f"{value:.2f}", "Normalized model input"))
+        for factor, value in (assessment.vulnerability_factors or {}).items():
+            rows.append((f"Vulnerability · {factor.replace('_', ' ').title()}", f"{value:.2f}", "Normalized model input"))
         self._table.setRowCount(len(rows))
         for r, (factor, val, impact) in enumerate(rows):
             item0 = QTableWidgetItem(factor)

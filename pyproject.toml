@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crisismap"
 version = "0.1.0"
-description = "Fully offline desktop disaster impact assessment simulator"
+description = "Pune disaster impact assessment with interactive mapping and local assistant"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = ["PySide6>=6.8,<7"]
+requires-python = ">=3.12,<3.13"
+dependencies = ["PySide6>=6.8,<7", "PySide6-Addons>=6.8,<7", "torch>=2.7,<3", "transformers>=4.57,<5"]
 
 [project.scripts]
 crisismap = "crisismap.app:main"
@@ -21,4 +21,4 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-crisismap = ["resources/data/*.geojson"]
+crisismap = ["resources/data/*.geojson", "resources/model/qwen2.5-0.5b-instruct/*"]

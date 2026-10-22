@@ -194,6 +194,39 @@ class RiskBreakdownWidget(ChartWidget):
         self.redraw()
 
 
+class ConfidenceRangeWidget(ChartWidget):
+    """Compact visual for the assessment confidence interval."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent, figsize=(5.0, 3.3), dpi=100)
+        self._ax = self._fig.add_subplot(111)
+        self._low, self._high, self._score = 0.0, 100.0, 0.0
+
+    def set_range(self, low: float, high: float, score: float) -> None:
+        self._low = max(0.0, min(100.0, float(low)))
+        self._high = max(self._low, min(100.0, float(high)))
+        self._score = max(0.0, min(100.0, float(score)))
+        ax = self._ax
+        ax.clear()
+        ax.set_facecolor("#0f1115")
+        ax.axvspan(self._low, self._high, color="#42a5f5", alpha=0.30, label="Confidence interval")
+        ax.hlines(0.5, self._low, self._high, color="#64b5f6", linewidth=5)
+        ax.scatter([self._score], [0.5], s=85, color="#ffffff", edgecolors="#42a5f5", linewidths=2, zorder=3)
+        ax.text(self._low, 0.69, f"{self._low:.0f}", color="#e8eaed", ha="center", fontsize=10)
+        ax.text(self._high, 0.69, f"{self._high:.0f}", color="#e8eaed", ha="center", fontsize=10)
+        ax.text(self._score, 0.24, f"Score {self._score:.0f}", color="#e8eaed", ha="center", fontsize=10)
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 25, 50, 75, 100])
+        ax.tick_params(axis="x", colors="#8a8f98", labelsize=9)
+        ax.set_title("Score confidence interval", color="#e8eaed", fontsize=11, pad=12)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        self._fig.tight_layout(pad=1.2)
+        self.redraw()
+
+
 class VulnerabilityRadarWidget(ChartWidget):
     """Radar/spider chart showing vulnerability factors."""
 
