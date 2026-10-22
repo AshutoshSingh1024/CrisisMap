@@ -6,3 +6,7 @@ dist/
 *.egg-info/
 .pytest_cache/
 reports/
+
+# Keep academic report and SRS deliverables out of the application repository.
+*Project_Report*.docx
+*SRS*.doc
