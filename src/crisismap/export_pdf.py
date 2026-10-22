@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import tempfile
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -14,6 +15,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
     HRFlowable,
+    Image,
 )
 
 from crisismap.models import Assessment
@@ -64,8 +66,14 @@ def _risk_color(level: str) -> colors.Color:
     return color if isinstance(color, colors.Color) else colors.HexColor(color)
 
 
-def export_pdf(assessment: Assessment, path: str | Path) -> None:
-    """Export a CrisisMap assessment as a nicely formatted PDF report."""
+def export_pdf(assessment: Assessment, path: str | Path, charts: dict | None = None) -> None:
+    """Export a CrisisMap assessment as a nicely formatted PDF report.
+
+    Args:
+        assessment: The assessment result to export.
+        path: Output PDF file path.
+        charts: Optional dict of name -> matplotlib Figure to embed as images.
+    """
     loc = assessment.location
     sc = assessment.scenario
     styles = _styles()
@@ -142,6 +150,24 @@ def export_pdf(assessment: Assessment, path: str | Path) -> None:
         styles["small"],
     ))
     story.append(Spacer(1, 12))
+
+    # Charts section
+    if charts:
+        story.append(Paragraph("Risk Visualizations", styles["h2"]))
+        chart_imgs = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name, fig in charts.items():
+                img_path = Path(tmpdir) / f"{name}.png"
+                fig.savefig(str(img_path), dpi=150, bbox_inches="tight", facecolor="#0f1115")
+                img = Image(str(img_path), width=120 * mm, height=80 * mm)
+                chart_imgs.append(img)
+            # Add charts in a row (2 per row)
+            for i in range(0, len(chart_imgs), 2):
+                row = chart_imgs[i:i + 2]
+                if len(row) == 1:
+                    row.append(Spacer(1, 1))
+                story.append(Table([row], colWidths=[90 * mm, 90 * mm]))
+                story.append(Spacer(1, 8))
 
     # Metrics table
     story.append(Paragraph("Component Breakdown", styles["h2"]))

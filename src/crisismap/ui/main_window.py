@@ -31,11 +31,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..data_repository import MapDataset, bundled_dataset, load_geojson, pune_dataset, procedural_dataset
+from ..data_repository import MapDataset, bundled_dataset, load_geojson, pune_dataset, procedural_dataset, flood_zones_dataset, shelters_dataset
 from ..export import save_assessment
 from ..export_pdf import export_pdf
 from ..models import Assessment, DisasterType, LocationProfile, RiskLevel, Scenario
-from ..simulation import assess
+from ..simulation import assess, simulate_time_series
 from .analysis_panel import AnalysisPanel
 from .chart_widgets import BarChartWidget, RiskBreakdownWidget, RiskGaugeWidget
 from .map_view import MapView, RISK_COLORS
@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self.dataset: MapDataset | None = None
         self.location: LocationProfile | None = None
         self.assessment: Assessment | None = None
+        self._comparison: Assessment | None = None
         self._anim_timer: QTimer | None = None
         self._heat_enabled: bool = True
         self._grid_enabled: bool = True
@@ -74,9 +75,13 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self.export_assessment)
         export_pdf_action = QAction("Export PDF report…", self)
         export_pdf_action.triggered.connect(self.export_pdf_report)
+        export_charts_action = QAction("Export charts to PNG…", self)
+        export_charts_action.triggered.connect(self.export_charts_report)
+        export_html_action = QAction("Export HTML report…", self)
+        export_html_action.triggered.connect(self.export_html_report)
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
-        file_menu.addActions([open_action, save_action, load_action, export_action, export_pdf_action])
+        file_menu.addActions([open_action, save_action, load_action, export_action, export_pdf_action, export_charts_action, export_html_action])
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
 
@@ -85,9 +90,13 @@ class MainWindow(QMainWindow):
         demo_action.triggered.connect(lambda: self.load_dataset(bundled_dataset()))
         pune_action = QAction("Load Pune wards (real map)", self)
         pune_action.triggered.connect(lambda: self.load_dataset(pune_dataset()))
+        flood_action = QAction("Load Pune flood zones", self)
+        flood_action.triggered.connect(lambda: self.load_dataset(flood_zones_dataset()))
+        shelter_action = QAction("Load Pune shelters", self)
+        shelter_action.triggered.connect(lambda: self.load_dataset(shelters_dataset()))
         terrain_action = QAction("Generate procedural terrain", self)
         terrain_action.triggered.connect(self.generate_terrain)
-        map_menu.addActions([demo_action, pune_action, terrain_action])
+        map_menu.addActions([demo_action, pune_action, flood_action, shelter_action, terrain_action])
 
         view_menu = self.menuBar().addMenu("&View")
         self.heat_action = QAction("Heatmap layer", self, checkable=True)
@@ -96,7 +105,9 @@ class MainWindow(QMainWindow):
         self.grid_action = QAction("Coordinate grid", self, checkable=True)
         self.grid_action.setChecked(True)
         self.grid_action.triggered.connect(self._toggle_grid)
-        view_menu.addActions([self.heat_action, self.grid_action])
+        self.multihazard_action = QAction("Multi-hazard overlay", self, checkable=True)
+        self.multihazard_action.triggered.connect(self._toggle_multi_hazard)
+        view_menu.addActions([self.heat_action, self.grid_action, self.multihazard_action])
 
         help_menu = self.menuBar().addMenu("&Help")
         about_action = QAction("About CrisisMap", self)
@@ -122,19 +133,33 @@ class MainWindow(QMainWindow):
         header.addWidget(subtitle)
         header.addStretch()
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._control_panel())
+        offline_banner = QLabel("●  OFFLINE MODE")
+        offline_banner.setObjectName("offlineBanner")
+        header.addWidget(offline_banner)
 
-        map_container = QFrame()
-        map_container.setObjectName("panel")
-        map_layout = QVBoxLayout(map_container)
+        offline_notice = QLabel("No network access · all data local · no API keys · works without internet")
+        offline_notice.setObjectName("offlineNotice")
+        header.addWidget(offline_notice)
+
+        header.addStretch()
+        root_layout.addLayout(header)
+
+        # Tabbed interface: Map tab and Analysis tab
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("mainTabs")
+
+        # Tab 1: Map view (large, full screen)
+        map_tab = QWidget()
+        map_layout = QVBoxLayout(map_tab)
         map_layout.setContentsMargins(2, 2, 2, 2)
+        map_layout.setSpacing(2)
+
         self.map_view = MapView()
         self.map_view.location_selected.connect(self._select_location)
         self.map_view.hovered_location.connect(self._on_hover_location)
+        self.map_view.evacuation_message.connect(lambda msg: self.statusBar().showMessage(msg))
         map_layout.addWidget(self.map_view)
-        # Map zoom controls
+
         zoom_row = QHBoxLayout()
         zoom_in = QPushButton("+")
         zoom_in.setObjectName("zoomButton")
@@ -153,10 +178,25 @@ class MainWindow(QMainWindow):
         zoom_row.addWidget(zoom_reset)
         zoom_row.addStretch()
         map_layout.addLayout(zoom_row)
-        splitter.addWidget(map_container)
+
+        self.tabs.addTab(map_tab, "Map")
+
+        # Tab 2: Analysis / control panel
+        analysis_tab = QWidget()
+        analysis_layout = QVBoxLayout(analysis_tab)
+        analysis_layout.setContentsMargins(4, 4, 4, 4)
+        analysis_layout.setSpacing(2)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self._control_panel())
         splitter.addWidget(self._results_panel())
-        splitter.setSizes([340, 760, 340])
-        root_layout.addWidget(splitter, 1)
+        splitter.setSizes([340, 760])
+        analysis_layout.addWidget(splitter)
+
+        self.tabs.addTab(analysis_tab, "Analysis")
+
+        root_layout.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
 
     def _control_panel(self) -> QWidget:
@@ -300,6 +340,40 @@ class MainWindow(QMainWindow):
         clear_button = QPushButton("Clear result")
         clear_button.clicked.connect(self.clear_result)
         layout.addWidget(clear_button)
+
+        # Scenario comparison
+        self._comparison: Assessment | None = None
+        compare_button = QPushButton("Save as Baseline")
+        compare_button.setToolTip("Save current assessment as baseline for comparison")
+        compare_button.clicked.connect(self._save_baseline)
+        layout.addWidget(compare_button)
+        show_compare_button = QPushButton("Show Comparison")
+        show_compare_button.setToolTip("Show comparison with baseline scenario")
+        show_compare_button.clicked.connect(self._show_comparison)
+        layout.addWidget(show_compare_button)
+
+        # Keyboard shortcut hints
+        layout.addWidget(self._section_label("KEYBOARD SHORTCUTS"))
+        shortcuts = QLabel(
+            "F1 About · F2 Offline Status · F5 Run · Esc Clear<br>"
+            "1 Flood · 2 Wildfire · 3 Earthquake · H Heatmap · G Grid"
+        )
+        shortcuts.setObjectName("hint")
+        shortcuts.setWordWrap(True)
+        shortcuts.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(shortcuts)
+        # Evacuation routing
+        layout.addWidget(self._section_label("EVACUATION"))
+        evac_row = QHBoxLayout()
+        evac_route_btn = QPushButton("Compute Evacuation Route")
+        evac_route_btn.setToolTip("Compute evacuation route from selected location to nearest shelter")
+        evac_route_btn.clicked.connect(self._compute_evacuation_route)
+        evac_clear_btn = QPushButton("Clear Route")
+        evac_clear_btn.clicked.connect(lambda: self.map_view.clear_evacuation_route())
+        evac_row.addWidget(evac_route_btn)
+        evac_row.addWidget(evac_clear_btn)
+        layout.addLayout(evac_row)
+
         layout.addStretch()
         scroll.setWidget(panel)
         self._update_parameter_help()
@@ -402,6 +476,18 @@ class MainWindow(QMainWindow):
             self.w_vulnerability.setValue(round(self.w_vulnerability.value() / total, 2))
 
     def load_dataset(self, dataset: MapDataset) -> None:
+        # Auto-merge shelters and roads when Pune wards are loaded
+        features = list(dataset.features)
+        if "pune" in dataset.name.lower() or "wards" in dataset.name.lower():
+            try:
+                shelters_ds = shelters_dataset()
+                features.extend(shelters_ds.features)
+                roads_ds = load_geojson(Path(__file__).parent.parent / "resources" / "data" / "pune_roads.geojson")
+                features.extend(roads_ds.features)
+                from crisismap.data_repository import MapDataset
+                dataset = MapDataset(dataset.name, features, dataset.source + " + shelters + roads")
+            except Exception:
+                pass
         self.dataset = dataset
         self.location = None
         self.assessment = None
@@ -462,6 +548,9 @@ class MainWindow(QMainWindow):
 
     def _toggle_grid(self, checked: bool) -> None:
         self.map_view.toggle_grid(checked)
+
+    def _toggle_multi_hazard(self, checked: bool) -> None:
+        self.map_view.toggle_multi_hazard(checked)
 
     def _reset_map_view(self) -> None:
         self.map_view.resetTransform()
@@ -531,6 +620,16 @@ class MainWindow(QMainWindow):
         self.metrics["Hazard"].setValue(round(result.hazard_score))
         self.metrics["Exposure"].setValue(round(result.exposure_score))
         self.metrics["Vulnerability"].setValue(round(result.vulnerability_score))
+        # Color-code progress bars based on score
+        for key, score in (("Hazard", result.hazard_score), ("Exposure", result.exposure_score), ("Vulnerability", result.vulnerability_score)):
+            bar = self.metrics[key]
+            if score < 33:
+                color = "#1e7d32"  # green
+            elif score < 66:
+                color = "#d4a017"  # amber
+            else:
+                color = "#d9534f"  # red
+            bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border: none; border-radius: 3px; }}")
         impact_text = (
             f"Estimated affected radius: {result.affected_radius_km:.1f} km · "
             f"People affected: {result.people_affected:,} · "
@@ -650,10 +749,59 @@ class MainWindow(QMainWindow):
                 f"border: 1px solid #22252b; padding:8px; font-weight:800;"
             )
 
+    def _save_baseline(self) -> None:
+        """Save current assessment as baseline for comparison."""
+        if not self.assessment:
+            QMessageBox.information(self, "Nothing to save", "Run an assessment first.")
+            return
+        self._comparison = self.assessment
+        self.statusBar().showMessage("Baseline saved for comparison")
+
+    def _show_comparison(self) -> None:
+        """Show comparison dialog between baseline and current assessment."""
+        if not self._comparison:
+            QMessageBox.information(self, "No baseline", "Save a baseline assessment first using 'Save as Baseline'.")
+            return
+        if not self.assessment:
+            QMessageBox.information(self, "No current result", "Run an assessment to compare against the baseline.")
+            return
+
+        before = self._comparison
+        after = self.assessment
+
+        lines = ["Scenario Comparison", "=" * 40, ""]
+        lines.append(f"Location: {after.location.name}")
+        lines.append("")
+        lines.append(f"{'Metric':<25} {'Before':>10} {'After':>10} {'Delta':>10}")
+        lines.append("-" * 55)
+
+        metrics = [
+            ("Overall Score", before.overall_score, after.overall_score),
+            ("Hazard Score", before.hazard_score, after.hazard_score),
+            ("Exposure Score", before.exposure_score, after.exposure_score),
+            ("Vulnerability Score", before.vulnerability_score, after.vulnerability_score),
+            ("Affected Radius (km)", before.affected_radius_km, after.affected_radius_km),
+            ("People Affected", before.people_affected, after.people_affected),
+            ("Property Loss (₹)", before.property_loss_inr, after.property_loss_inr),
+        ]
+        for name, b, a in metrics:
+            delta = a - b
+            delta_str = f"{delta:+.1f}" if isinstance(b, float) else f"{delta:+,}"
+            lines.append(f"{name:<25} {b:>10.1f} {a:>10.1f} {delta_str:>10}")
+
+        lines.append("")
+        lines.append(f"Before: {before.scenario.disaster.value} {before.scenario.intensity}/10, "
+                     f"{before.scenario.duration_hours}h, prep={before.scenario.preparedness:.0%}")
+        lines.append(f"After:  {after.scenario.disaster.value} {after.scenario.intensity}/10, "
+                     f"{after.scenario.duration_hours}h, prep={after.scenario.preparedness:.0%}")
+
+        QMessageBox.information(self, "Scenario Comparison", "\n".join(lines))
+
     def clear_result(self) -> None:
         if self._anim_timer:
             self._anim_timer.stop()
         self.assessment = None
+        self._comparison = None
         self.location = None
         if hasattr(self, "map_view"):
             self.map_view.clear_assessment()
@@ -716,10 +864,161 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF report", f"crisismap-{safe_name}.pdf", "PDF (*.pdf)")
         if path:
             try:
-                export_pdf(self.assessment, path)
+                charts = {
+                    "risk_gauge": self.analysis_panel.gauge.figure(),
+                    "risk_bar": self.analysis_panel.bar_chart.figure(),
+                    "risk_breakdown": self.analysis_panel.breakdown.figure(),
+                    "vulnerability_radar": self.analysis_panel.radar.figure(),
+                }
+                export_pdf(self.assessment, path, charts=charts)
                 self.statusBar().showMessage(f"Saved PDF report to {path}")
             except Exception as exc:
                 QMessageBox.critical(self, "Could not export PDF", str(exc))
+
+    def export_charts_report(self) -> None:
+        """Export all chart images as PNG files."""
+        if not self.assessment:
+            QMessageBox.information(self, "Nothing to export", "Run an assessment before exporting charts.")
+            return
+        safe_name = "".join(ch if ch.isalnum() else "-" for ch in self.assessment.location.name.lower()).strip("-")
+        directory = QFileDialog.getExistingDirectory(self, "Select folder to save charts")
+        if not directory:
+            return
+        try:
+            saved = self.analysis_panel.export_charts(directory)
+            self.statusBar().showMessage(f"Exported {len(saved)} chart images to {directory}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Could not export charts", str(exc))
+
+    def export_html_report(self) -> None:
+        """Export a print-friendly HTML report."""
+        if not self.assessment:
+            QMessageBox.information(self, "Nothing to export", "Run an assessment before exporting a report.")
+            return
+        safe_name = "".join(ch if ch.isalnum() else "-" for ch in self.assessment.location.name.lower()).strip("-")
+        path, _ = QFileDialog.getSaveFileName(self, "Export HTML report", f"crisismap-{safe_name}.html", "HTML (*.html)")
+        if not path:
+            return
+        try:
+            html = self._build_html_report()
+            Path(path).write_text(html, encoding="utf-8")
+            self.statusBar().showMessage(f"Saved HTML report to {path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Could not export HTML report", str(exc))
+
+    def _build_html_report(self) -> str:
+        """Build a print-friendly HTML report from the current assessment."""
+        a = self.assessment
+        loc = a.location
+        sc = a.scenario
+        risk_color = {
+            "LOW": "#1e7d32",
+            "MODERATE": "#d4a017",
+            "HIGH": "#d9534f",
+            "EXTREME": "#b00020",
+        }.get(a.risk_level.value, "#64b5f6")
+
+        # Time series data
+        ts = simulate_time_series(loc, sc, steps=12)
+        ts_rows = ""
+        for point in ts:
+            ts_rows += f"<tr><td>{point['hour']:.1f}</td><td>{point['hazard']:.1f}</td><td>{point['exposure']:.1f}</td><td>{point['vulnerability']:.1f}</td><td>{point['overall']:.1f}</td></tr>"
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrisisMap Assessment Report</title>
+<style>
+  @page {{ size: A4; margin: 15mm; }}
+  body {{ font-family: 'Segoe UI', 'DejaVu Sans', sans-serif; color: #202124; line-height: 1.5; }}
+  .header {{ text-align: center; border-bottom: 3px solid #1a73e8; padding-bottom: 15px; margin-bottom: 25px; }}
+  .header h1 {{ color: #1a73e8; margin: 0; font-size: 28px; }}
+  .header .subtitle {{ color: #5f6368; font-size: 14px; }}
+  .info-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 25px; }}
+  .info-card {{ background: #f8f9fa; border: 1px solid #dadce0; border-radius: 8px; padding: 12px; }}
+  .info-card .label {{ font-size: 11px; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; }}
+  .info-card .value {{ font-size: 15px; font-weight: 600; color: #202124; }}
+  .risk-badge {{ display: inline-block; padding: 10px 20px; border-radius: 8px; color: #fff; font-weight: 700; font-size: 16px; }}
+  .metrics-table {{ width: 100%; border-collapse: collapse; margin-bottom: 25px; }}
+  .metrics-table th {{ background: #202124; color: #fff; padding: 10px; text-align: left; font-size: 13px; }}
+  .metrics-table td {{ padding: 10px; border: 1px solid #dadce0; }}
+  .metrics-table tr:nth-child(even) {{ background: #f8f9fa; }}
+  .chart-section {{ margin-bottom: 25px; }}
+  .chart-section h2 {{ color: #1a73e8; font-size: 18px; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; }}
+  .suggestions {{ background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 15px; margin-bottom: 25px; }}
+  .suggestions h2 {{ color: #92400e; font-size: 16px; margin-top: 0; }}
+  .suggestions ul {{ margin: 0; padding-left: 20px; }}
+  .suggestions li {{ margin-bottom: 6px; }}
+  .footer {{ margin-top: 30px; border-top: 1px solid #dadce0; padding-top: 15px; font-size: 11px; color: #5f6368; }}
+  .time-series-table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+  .time-series-table th {{ background: #f1f3f4; padding: 8px; text-align: center; border: 1px solid #dadce0; font-size: 12px; }}
+  .time-series-table td {{ padding: 8px; text-align: center; border: 1px solid #dadce0; font-size: 12px; }}
+  .print-note {{ font-size: 11px; color: #5f6368; font-style: italic; text-align: center; margin-bottom: 20px; }}
+</style>
+</head>
+<body>
+  <div class="print-note">CrisisMap — Print-friendly Report. Print with background colors enabled.</div>
+
+  <div class="header">
+    <h1>CRISIS MAP</h1>
+    <div class="subtitle">Offline Disaster Impact Assessment Report</div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-card"><div class="label">Location</div><div class="value">{loc.name}</div></div>
+    <div class="info-card"><div class="label">Coordinates</div><div class="value">{loc.latitude:.4f}°N, {loc.longitude:.4f}°E</div></div>
+    <div class="info-card"><div class="label">Elevation</div><div class="value">{loc.elevation_m:.0f} m</div></div>
+    <div class="info-card"><div class="label">Disaster</div><div class="value">{sc.disaster.value}</div></div>
+    <div class="info-card"><div class="label">Intensity</div><div class="value">{sc.intensity:.1f} / 10</div></div>
+    <div class="info-card"><div class="label">Duration</div><div class="value">{sc.duration_hours:.1f} h</div></div>
+    <div class="info-card"><div class="label">Preparedness</div><div class="value">{sc.preparedness:.0%}</div></div>
+    <div class="info-card"><div class="label">Time of Day</div><div class="value">{loc.time_of_day}:00 hrs</div></div>
+    <div class="info-card"><div class="label">Season</div><div class="value">{loc.season.title()}</div></div>
+    <div class="info-card"><div class="label">Generated</div><div class="value">{datetime.now().strftime('%d %b %Y, %I:%M %p')}</div></div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 25px;">
+    <span class="risk-badge" style="background-color: {risk_color};">
+      {a.risk_level.value.upper()} RISK — Score: {a.overall_score:.0f}/100
+    </span>
+  </div>
+
+  <p><b>Summary:</b> {a.summary}</p>
+  <p><b>Affected Radius:</b> {a.affected_radius_km:.1f} km &nbsp;|&nbsp; <b>People Affected:</b> {a.people_affected:,} &nbsp;|&nbsp; <b>Estimated Property Loss:</b> ₹{a.property_loss_inr:,.0f}</p>
+  <p><b>Confidence:</b> {int(a.confidence_interval * 100)}% interval: {a.confidence_lower:.0f}–{a.confidence_upper:.0f} (σ={a.mc_std:.1f}, n={a.mc_samples})</p>
+
+  <table class="metrics-table">
+    <thead><tr><th>Component</th><th>Score</th><th>Weight</th></tr></thead>
+    <tbody>
+      <tr><td>Physical Hazard</td><td>{a.hazard_score:.1f}</td><td>{sc.weight_hazard:.0%}</td></tr>
+      <tr><td>People Exposure</td><td>{a.exposure_score:.1f}</td><td>{sc.weight_exposure:.0%}</td></tr>
+      <tr><td>Social Vulnerability</td><td>{a.vulnerability_score:.1f}</td><td>{sc.weight_vulnerability:.0%}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="chart-section">
+    <h2>Risk Factor Breakdown</h2>
+    <table class="time-series-table">
+      <thead><tr><th>Hour</th><th>Hazard</th><th>Exposure</th><th>Vulnerability</th><th>Overall</th></tr></thead>
+      <tbody>{ts_rows}</tbody>
+    </table>
+  </div>
+
+  <div class="suggestions">
+    <h2>Suggested Actions</h2>
+    <ul>
+      {"".join(f"<li>{r}</li>" for r in a.recommendations)}
+    </ul>
+  </div>
+
+  <div class="footer">
+    CrisisMap — Offline Disaster Impact Assessment · Educational tool, not for emergency decisions · No network access required
+  </div>
+</body>
+</html>"""
+        return html
 
     def save_scenario(self) -> None:
         """Save current scenario configuration to a local JSON file."""
@@ -822,6 +1121,36 @@ class MainWindow(QMainWindow):
         elif key == Qt.Key.Key_G:
             self.grid_action.trigger()
         super().keyPressEvent(event)
+
+    def _compute_evacuation_route(self) -> None:
+        """Compute evacuation route from selected location to nearest shelter."""
+        if not self.location:
+            QMessageBox.information(self, "Select a location", "Click an area on the map first to set your starting point.")
+            return
+
+        # Load shelters if not already loaded
+        shelters = []
+        for feature in (self.dataset.features if self.dataset else []):
+            if feature.get("geometry", {}).get("type") == "Point":
+                props = feature.get("properties") or {}
+                if props.get("shelter_type"):
+                    shelters.append(feature)
+
+        if not shelters:
+            QMessageBox.information(self, "No shelters", "Load Pune shelters first via Map → Load Pune shelters.")
+            return
+
+        route = self.map_view.compute_evacuation_route(self.location, shelters)
+        if not route:
+            QMessageBox.warning(self, "No route found", "Could not compute evacuation route to the nearest shelter.")
+            return
+
+        self.map_view.draw_evacuation_route(route)
+        shelter_name = route["shelter"]["properties"].get("name", "Unknown Shelter")
+        capacity = route["shelter"]["properties"].get("capacity", "N/A")
+        self.statusBar().showMessage(
+            f"Evacuation route to {shelter_name} (capacity: {capacity}) — {route['distance_km']:.1f} km"
+        )
 
     def show_about(self) -> None:
         QMessageBox.about(

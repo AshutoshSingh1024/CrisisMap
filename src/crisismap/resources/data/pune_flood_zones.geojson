@@ -1,0 +1,92 @@
+{
+  "type": "FeatureCollection",
+  "name": "pune_flood_zones",
+  "source": "Derived from Pune Municipal Corporation flood-prone areas and Mula-Mutha river basin",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mula-Mutha River Confluence Zone",
+        "zone_type": "flood_prone",
+        "risk_level": "high",
+        "description": "Low-lying area near river confluence - high flood risk during monsoon"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [73.8550, 18.5100], [73.8650, 18.5120], [73.8700, 18.5200], [73.8750, 18.5300],
+          [73.8700, 18.5400], [73.8600, 18.5450], [73.8500, 18.5400], [73.8450, 18.5300],
+          [73.8400, 18.5200], [73.8450, 18.5100], [73.8550, 18.5100]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mutha River Lower Reach",
+        "zone_type": "flood_prone",
+        "risk_level": "moderate",
+        "description": "Riverbank area - moderate flood risk during heavy rainfall"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [73.8300, 18.5000], [73.8400, 18.5050], [73.8500, 18.5100], [73.8600, 18.5150],
+          [73.8650, 18.5200], [73.8600, 18.5250], [73.8500, 18.5250], [73.8400, 18.5200],
+          [73.8350, 18.5100], [73.8300, 18.5050], [73.8300, 18.5000]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pashan Lake Surroundings",
+        "zone_type": "flood_prone",
+        "risk_level": "moderate",
+        "description": "Lake catchment area - moderate flood risk during monsoon"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [73.7800, 18.5400], [73.7900, 18.5420], [73.8000, 18.5450], [73.8050, 18.5500],
+          [73.8000, 18.5550], [73.7900, 18.5580], [73.7800, 18.5550], [73.7750, 18.5500],
+          [73.7750, 18.5450], [73.7800, 18.5400]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Khadakwasla Dam Downstream",
+        "zone_type": "flood_prone",
+        "risk_level": "high",
+        "description": "Downstream of dam - high flood risk if water released during heavy rain"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [73.7200, 18.4400], [73.7300, 18.4450], [73.7400, 18.4500], [73.7500, 18.4550],
+          [73.7550, 18.4600], [73.7500, 18.4650], [73.7400, 18.4650], [73.7300, 18.4600],
+          [73.7200, 18.4550], [73.7200, 18.4400]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Aundh-Baner Low Lying Area",
+        "zone_type": "flood_prone",
+        "risk_level": "low",
+        "description": "Slightly low-lying area - minimal flood risk"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [73.7900, 18.5600], [73.8000, 18.5650], [73.8100, 18.5700], [73.8150, 18.5750],
+          [73.8100, 18.5800], [73.8000, 18.5820], [73.7900, 18.5780], [73.7850, 18.5700],
+          [73.7900, 18.5600]
+        ]]
+      }
+    }
+  ]
+}

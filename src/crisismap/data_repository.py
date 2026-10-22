@@ -181,3 +181,13 @@ def procedural_dataset(seed: int = 42, size: int = 7) -> MapDataset:
                 ]]},
             })
     return MapDataset(f"Procedural terrain · seed {seed}", features, "Locally generated synthetic terrain")
+
+
+def flood_zones_dataset() -> MapDataset:
+    """Load Pune flood-prone zones (Mula-Mutha river basin, lake areas, downstream zones)."""
+    return load_geojson(Path(__file__).parent / "resources" / "data" / "pune_flood_zones.geojson")
+
+
+def shelters_dataset() -> MapDataset:
+    """Load Pune disaster shelter locations (community halls, open grounds, transport hubs)."""
+    return load_geojson(Path(__file__).parent / "resources" / "data" / "pune_shelters.geojson")

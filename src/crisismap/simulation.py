@@ -362,3 +362,75 @@ def assess(location: LocationProfile, scenario: Scenario) -> Assessment:
         hazard_factors=h_factors,
         vulnerability_factors=v_factors,
     )
+
+
+def simulate_time_series(location: LocationProfile, scenario: Scenario, steps: int = 24) -> list[dict]:
+    """Model risk evolution over the duration hours.
+
+    Returns a list of dicts with 'hour', 'hazard', 'exposure', 'vulnerability', 'overall'
+    for each time step. Useful for showing how risk builds or decays over the event duration.
+    """
+    results = []
+    duration_hours = scenario.duration_hours
+    if duration_hours <= 0:
+        return results
+
+    step_hours = duration_hours / steps
+    base_intensity = scenario.intensity / 10
+
+    for i in range(steps + 1):
+        t = i * step_hours
+        # Progress through the event (0 = start, 1 = end)
+        progress = t / duration_hours if duration_hours > 0 else 1.0
+
+        # Hazard typically builds then plateaus/decays depending on disaster type
+        if scenario.disaster is DisasterType.FLOOD:
+            # Flood risk builds as water accumulates, peaks near end
+            intensity_factor = 0.4 + 0.6 * progress
+        elif scenario.disaster is DisasterType.WILDFIRE:
+            # Wildfire risk builds fast early, then may plateau
+            intensity_factor = 0.5 + 0.5 * (1 - math.exp(-3 * progress))
+        else:  # Earthquake
+            # Earthquake risk is immediate, doesn't build over time
+            intensity_factor = 1.0
+
+        current_intensity = base_intensity * intensity_factor
+
+        # Create a modified scenario for this time step
+        ts_scenario = Scenario(
+            disaster=scenario.disaster,
+            intensity=current_intensity * 10,
+            duration_hours=step_hours,
+            preparedness=scenario.preparedness,
+            weight_hazard=scenario.weight_hazard,
+            weight_exposure=scenario.weight_exposure,
+            weight_vulnerability=scenario.weight_vulnerability,
+            confidence_interval=scenario.confidence_interval,
+        )
+
+        # Compute scores directly without Monte Carlo for speed
+        if scenario.disaster is DisasterType.FLOOD:
+            hazard, _ = _hazard_flood(location, ts_scenario)
+        elif scenario.disaster is DisasterType.WILDFIRE:
+            hazard, _ = _hazard_wildfire(location, ts_scenario)
+        else:
+            hazard, _ = _hazard_earthquake(location, ts_scenario)
+
+        vulnerability, _ = _vulnerability(location, ts_scenario)
+        exposure = location.population_density
+
+        w_h, w_e, w_v = ts_scenario.weight_hazard, ts_scenario.weight_exposure, ts_scenario.weight_vulnerability
+        h_score = _clamp(hazard * 100)
+        e_score = _clamp(exposure * 100)
+        v_score = _clamp(vulnerability * 100)
+        overall = _clamp(h_score * w_h + e_score * w_e + v_score * w_v)
+
+        results.append({
+            "hour": round(t, 1),
+            "hazard": round(h_score, 1),
+            "exposure": round(e_score, 1),
+            "vulnerability": round(v_score, 1),
+            "overall": round(overall, 1),
+        })
+
+    return results

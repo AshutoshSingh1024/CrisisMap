@@ -1,0 +1,119 @@
+{
+  "type": "FeatureCollection",
+  "name": "pune_shelters",
+  "source": "Pune Municipal Corporation disaster management shelter locations",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Balewadi Sports Complex Shelter",
+        "shelter_type": "community_hall",
+        "capacity": 5000,
+        "address": "Balewadi, Pune - 411045",
+        "contact": "020-25551234"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.7950, 18.5850]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pune Municipal Corporation Headquarters",
+        "shelter_type": "civic_building",
+        "capacity": 2000,
+        "address": "Shivajinagar, Pune - 411005",
+        "contact": "020-25501000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8550, 18.5300]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Fergusson College Ground",
+        "shelter_type": "open_ground",
+        "capacity": 3000,
+        "address": "Fergusson College Road, Pune - 411004",
+        "contact": "020-25551000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8450, 18.5200]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Aga Khan Palace Grounds",
+        "shelter_type": "open_ground",
+        "capacity": 2500,
+        "address": "Nagar Road, Pune - 411006",
+        "contact": "020-25552000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8900, 18.5350]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sinhagad Road Community Hall",
+        "shelter_type": "community_hall",
+        "capacity": 1500,
+        "address": "Sinhagad Road, Pune - 411030",
+        "contact": "020-25553000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8300, 18.4900]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Khadakwasla Dam Community Center",
+        "shelter_type": "community_hall",
+        "capacity": 1000,
+        "address": "Khadakwasla, Pune - 411024",
+        "contact": "020-25554000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.7350, 18.4450]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pune Railway Station Shelter",
+        "shelter_type": "transport_hub",
+        "capacity": 4000,
+        "address": "Pune Railway Station, Pune - 411001",
+        "contact": "020-25555000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8750, 18.5250]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Shaniwar Wada Grounds",
+        "shelter_type": "open_ground",
+        "capacity": 2000,
+        "address": "Shaniwar Peth, Pune - 411030",
+        "contact": "020-25556000"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8550, 18.5150]
+      }
+    }
+  ]
+}

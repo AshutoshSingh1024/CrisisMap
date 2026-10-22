@@ -181,15 +181,6 @@ class AnalysisPanel(QScrollArea):
         """Populate all charts and metrics from an assessment result."""
         # Update location card
         self._location_card = LocationInfoCard(location)
-        # Replace in layout
-        self._bottom_row.replaceWidget(self._bottom_row.itemAt(0).widget(), self._location_card)
-        self._layout.removeItem(self._bottom_row)
-        self._bottom_row = QHBoxLayout()
-        self._bottom_row.setSpacing(10)
-        self._bottom_row.addWidget(self._location_card, 1)
-        table_container = self._layout.itemAt(2).widget()
-        self._bottom_row.addWidget(table_container, 2)
-        self._layout.insertLayout(2, self._bottom_row)
 
         # Clear existing metric cards
         while self._metrics_row.count():
@@ -277,3 +268,27 @@ class AnalysisPanel(QScrollArea):
                 item = self._table.item(r, c)
                 item.setFont(QFont("Segoe UI", 9))
                 item.setForeground(QColor("#e8eaed"))
+
+    def export_charts(self, directory: str | Path) -> list[str]:
+        """Export all charts as PNG images to the given directory.
+
+        Returns a list of saved file paths.
+        """
+        from datetime import datetime
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        saved = []
+
+        charts = [
+            ("risk_gauge", self.gauge),
+            ("risk_bar", self.bar_chart),
+            ("risk_breakdown", self.breakdown),
+            ("vulnerability_radar", self.radar),
+        ]
+        for name, widget in charts:
+            fpath = directory / f"crisismap_{name}_{timestamp}.png"
+            widget.figure().savefig(str(fpath), dpi=150, bbox_inches="tight",
+                                    facecolor="#0f1115")
+            saved.append(str(fpath))
+        return saved
