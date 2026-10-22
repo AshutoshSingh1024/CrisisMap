@@ -85,6 +85,8 @@ class MapView(QGraphicsView):
         self._pulse_timer: QTimer | None = None
         self._pulse_scale = 1.0
         self._pulse_dir = 1.0
+        self._heat_enabled: bool = True
+        self._last_assessment: Assessment | None = None
 
     def set_dataset(self, dataset: MapDataset) -> None:
         self._dataset = dataset
@@ -92,6 +94,8 @@ class MapView(QGraphicsView):
         self._selected = None
         self._selection_item = None
         self._risk_group = None
+        self._heat_group = None
+        self._last_assessment = None
         self._clear_grid()
         self.scene().clear()
         self._bounds = self._calculate_bounds(dataset.features)
@@ -261,6 +265,7 @@ class MapView(QGraphicsView):
             self.location_selected.emit(location)
 
     def show_assessment(self, assessment: Assessment) -> None:
+        self._last_assessment = assessment
         if self._risk_group:
             self.scene().removeItem(self._risk_group)
         self.clear_heatmap()
@@ -284,9 +289,24 @@ class MapView(QGraphicsView):
         self.scene().addItem(group)
         self._risk_group = group
         # Heatmap across all locations based on population density
-        self._draw_location_heatmap()
+        if self._heat_enabled:
+            self._draw_location_heatmap()
         if self._selection_item:
             self._selection_item.setZValue(25)
+
+    def toggle_grid(self, enabled: bool) -> None:
+        """Show or hide the coordinate grid overlay."""
+        self._clear_grid()
+        if enabled:
+            self._draw_grid()
+
+    def toggle_heatmap(self, enabled: bool) -> None:
+        """Show or hide the population heatmap layer."""
+        self._heat_enabled = enabled
+        if not enabled:
+            self.clear_heatmap()
+        elif self._last_assessment:
+            self._draw_location_heatmap()
 
     def _draw_location_heatmap(self) -> None:
         """Draw a heat gradient at each location based on population density."""
@@ -315,6 +335,12 @@ class MapView(QGraphicsView):
             self.scene().removeItem(self._risk_group)
             self._risk_group = None
         self.clear_heatmap()
+
+    def clear_selection(self) -> None:
+        if self._selection_item:
+            self.scene().removeItem(self._selection_item)
+            self._selection_item = None
+        self._selected = None
 
     def clear_heatmap(self) -> None:
         if self._heat_group:

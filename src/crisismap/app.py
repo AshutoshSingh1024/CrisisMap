@@ -34,6 +34,14 @@ QPushButton:pressed { background: #22252b; }
 #primaryButton { background: #1e7d32; color: #ffffff; border: none; border-radius: 4px; padding: 8px 16px; font-weight: 600; }
 #primaryButton:hover { background: #2e9e40; }
 #primaryButton:pressed { background: #186a28; }
+#toggleButton { background: #1e222a; border: 1px solid #22252b; border-radius: 4px; padding: 5px 10px; font-weight: 600; color: #e8eaed; font-size: 10px; }
+#toggleButton:checked { background: #1e7d32; border-color: #1e7d32; color: #ffffff; }
+#toggleButton:hover { background: #262b34; border-color: #64b5f6; }
+#quickButton { background: #1e222a; border: 1px solid #22252b; border-radius: 4px; padding: 6px 12px; font-weight: 600; color: #e8eaed; font-size: 10px; }
+#quickButton:hover { background: #262b34; border-color: #64b5f6; }
+#mapControls { background: #1e222a; border: 1px solid #22252b; border-radius: 4px; padding: 6px; }
+#zoomButton { background: #1e222a; border: 1px solid #22252b; border-radius: 4px; padding: 4px 8px; font-weight: 700; color: #e8eaed; font-size: 11px; min-width: 32px; }
+#zoomButton:hover { background: #262b34; border-color: #64b5f6; }
 #riskBadge { background: #1e222a; color: #e8eaed; border: 1px solid #22252b; border-radius: 8px; padding: 8px; font-weight: 700; }
 #score { font-size: 32px; font-weight: 700; color: #e8eaed; margin-top: 4px; font-family: "Segoe UI"; }
 #metricLabel { color: #8a8f98; font-size: 10px; font-weight: 600; }
@@ -42,6 +50,7 @@ QProgressBar::chunk { background: #64b5f6; border: none; border-radius: 3px; }
 #summary { background: #1e222a; border: 1px solid #22252b; border-radius: 6px; padding: 8px; color: #e8eaed; font-size: 10px; }
 #actions { color: #e8eaed; line-height: 1.4; font-size: 10px; }
 #suggestions { color: #e8eaed; line-height: 1.4; font-size: 10px; font-weight: 600; }
+#chartCard { background: #1a1d24; border: 1px solid #2d3239; border-radius: 8px; padding: 8px; }
 QStatusBar { color: #8a8f98; background: #0f1115; border-top: 1px solid #22252b; }
 QSplitter::handle { width: 2px; background: #22252b; }
 QScrollBar:vertical { width: 12px; background: #0f1115; border: none; }

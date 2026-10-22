@@ -142,11 +142,6 @@ def pune_dataset() -> MapDataset:
     return MapDataset(name="Pune Municipal Corporation · 58 wards", features=dataset.features, source="OpenCity / Oorvani Foundation · ODbL-1.0")
 
 
-def streets_dataset() -> MapDataset:
-    """Load a representative Pune street network (roads and localities)."""
-    return load_geojson(Path(__file__).parent / "resources" / "data" / "pune_streets.geojson")
-
-
 def procedural_dataset(seed: int = 42, size: int = 7) -> MapDataset:
     """Create a deterministic locally generated terrain grid (noise-like, no dependency)."""
     rng = random.Random(seed)

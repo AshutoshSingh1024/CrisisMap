@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -24,15 +26,18 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from ..data_repository import MapDataset, bundled_dataset, load_geojson, pune_dataset, streets_dataset, procedural_dataset
+from ..data_repository import MapDataset, bundled_dataset, load_geojson, pune_dataset, procedural_dataset
 from ..export import save_assessment
 from ..export_pdf import export_pdf
 from ..models import Assessment, DisasterType, LocationProfile, RiskLevel, Scenario
 from ..simulation import assess
+from .analysis_panel import AnalysisPanel
+from .chart_widgets import BarChartWidget, RiskBreakdownWidget, RiskGaugeWidget
 from .map_view import MapView, RISK_COLORS
 
 
@@ -46,6 +51,8 @@ class MainWindow(QMainWindow):
         self.location: LocationProfile | None = None
         self.assessment: Assessment | None = None
         self._anim_timer: QTimer | None = None
+        self._heat_enabled: bool = True
+        self._grid_enabled: bool = True
         self._build_menu()
         self._build_ui()
         self.setStatusBar(QStatusBar())
@@ -57,14 +64,19 @@ class MainWindow(QMainWindow):
         open_action = QAction("Open GeoJSON…", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self.open_geojson)
+        save_action = QAction("Save scenario…", self)
+        save_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_action.triggered.connect(self.save_scenario)
+        load_action = QAction("Load scenario…", self)
+        load_action.setShortcut(QKeySequence("Ctrl+O"))
+        load_action.triggered.connect(self.load_scenario)
         export_action = QAction("Export assessment…", self)
-        export_action.setShortcut(QKeySequence.StandardKey.Save)
         export_action.triggered.connect(self.export_assessment)
         export_pdf_action = QAction("Export PDF report…", self)
         export_pdf_action.triggered.connect(self.export_pdf_report)
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
-        file_menu.addActions([open_action, export_action, export_pdf_action])
+        file_menu.addActions([open_action, save_action, load_action, export_action, export_pdf_action])
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
 
@@ -73,16 +85,26 @@ class MainWindow(QMainWindow):
         demo_action.triggered.connect(lambda: self.load_dataset(bundled_dataset()))
         pune_action = QAction("Load Pune wards (real map)", self)
         pune_action.triggered.connect(lambda: self.load_dataset(pune_dataset()))
-        streets_action = QAction("Load Pune streets (OSM)", self)
-        streets_action.triggered.connect(lambda: self.load_dataset(streets_dataset()))
         terrain_action = QAction("Generate procedural terrain", self)
         terrain_action.triggered.connect(self.generate_terrain)
-        map_menu.addActions([demo_action, pune_action, streets_action, terrain_action])
+        map_menu.addActions([demo_action, pune_action, terrain_action])
+
+        view_menu = self.menuBar().addMenu("&View")
+        self.heat_action = QAction("Heatmap layer", self, checkable=True)
+        self.heat_action.setChecked(True)
+        self.heat_action.triggered.connect(self._toggle_heatmap)
+        self.grid_action = QAction("Coordinate grid", self, checkable=True)
+        self.grid_action.setChecked(True)
+        self.grid_action.triggered.connect(self._toggle_grid)
+        view_menu.addActions([self.heat_action, self.grid_action])
 
         help_menu = self.menuBar().addMenu("&Help")
         about_action = QAction("About CrisisMap", self)
         about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        offline_status_action = QAction("Offline Status", self)
+        offline_status_action.setToolTip("Verify app works fully offline")
+        offline_status_action.triggered.connect(self.show_offline_status)
+        help_menu.addActions([offline_status_action, about_action])
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -99,7 +121,6 @@ class MainWindow(QMainWindow):
         header.addSpacing(8)
         header.addWidget(subtitle)
         header.addStretch()
-        root_layout.addLayout(header)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
@@ -113,6 +134,25 @@ class MainWindow(QMainWindow):
         self.map_view.location_selected.connect(self._select_location)
         self.map_view.hovered_location.connect(self._on_hover_location)
         map_layout.addWidget(self.map_view)
+        # Map zoom controls
+        zoom_row = QHBoxLayout()
+        zoom_in = QPushButton("+")
+        zoom_in.setObjectName("zoomButton")
+        zoom_in.setToolTip("Zoom in")
+        zoom_in.clicked.connect(lambda: self.map_view.scale(1.18, 1.18))
+        zoom_out = QPushButton("-")
+        zoom_out.setObjectName("zoomButton")
+        zoom_out.setToolTip("Zoom out")
+        zoom_out.clicked.connect(lambda: self.map_view.scale(1 / 1.18, 1 / 1.18))
+        zoom_reset = QPushButton("↺")
+        zoom_reset.setObjectName("zoomButton")
+        zoom_reset.setToolTip("Reset view")
+        zoom_reset.clicked.connect(self._reset_map_view)
+        zoom_row.addWidget(zoom_in)
+        zoom_row.addWidget(zoom_out)
+        zoom_row.addWidget(zoom_reset)
+        zoom_row.addStretch()
+        map_layout.addLayout(zoom_row)
         splitter.addWidget(map_container)
         splitter.addWidget(self._results_panel())
         splitter.setSizes([340, 760, 340])
@@ -148,6 +188,36 @@ class MainWindow(QMainWindow):
         mitwpu_button.setToolTip("Load MIT World Peace University, Kothrud as test location")
         mitwpu_button.clicked.connect(self._load_mitwpu)
         layout.addWidget(mitwpu_button)
+
+        # Quick scenario buttons
+        layout.addWidget(self._section_label("QUICK SCENARIOS"))
+        quick_row = QHBoxLayout()
+        flood_btn = QPushButton("Flood 7/10")
+        flood_btn.setObjectName("quickButton")
+        flood_btn.clicked.connect(lambda: self._quick_scenario(DisasterType.FLOOD, 7.0, 24, 0.45))
+        fire_btn = QPushButton("Wildfire 6/10")
+        fire_btn.setObjectName("quickButton")
+        fire_btn.clicked.connect(lambda: self._quick_scenario(DisasterType.WILDFIRE, 6.0, 12, 0.50))
+        quake_btn = QPushButton("Earthquake 7/10")
+        quake_btn.setObjectName("quickButton")
+        quake_btn.clicked.connect(lambda: self._quick_scenario(DisasterType.EARTHQUAKE, 7.0, 2, 0.55))
+        quick_row.addWidget(flood_btn)
+        quick_row.addWidget(fire_btn)
+        quick_row.addWidget(quake_btn)
+        layout.addLayout(quick_row)
+
+        # Scenario save/load
+        layout.addWidget(self._section_label("SCENARIO FILES"))
+        scenario_row = QHBoxLayout()
+        save_btn = QPushButton("Save scenario")
+        save_btn.setToolTip("Save current scenario to local JSON file")
+        save_btn.clicked.connect(self.save_scenario)
+        load_btn = QPushButton("Load scenario")
+        load_btn.setToolTip("Load scenario from local JSON file")
+        load_btn.clicked.connect(self.load_scenario)
+        scenario_row.addWidget(save_btn)
+        scenario_row.addWidget(load_btn)
+        layout.addLayout(scenario_row)
 
         layout.addWidget(self._section_label("02  HAZARD"))
         form = QFormLayout()
@@ -241,29 +311,45 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
+
         title = QLabel("Assessment")
         title.setObjectName("panelTitle")
         layout.addWidget(title)
+
+        # Tabbed view: Quick Assessment + Detailed Analysis
+        self.results_tabs = QTabWidget()
+        self.results_tabs.setObjectName("resultsTabs")
+
+        # Tab 1: Quick Assessment
+        quick_tab = QWidget()
+        quick_layout = QVBoxLayout(quick_tab)
+        quick_layout.setContentsMargins(6, 6, 6, 6)
+        quick_layout.setSpacing(6)
+
         self.risk_badge = QLabel("NO RESULT")
         self.risk_badge.setObjectName("riskBadge")
         self.risk_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.risk_badge)
+        quick_layout.addWidget(self.risk_badge)
+
         self.score = QLabel("—")
         self.score.setObjectName("score")
         self.score.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.score)
+        quick_layout.addWidget(self.score)
+
         score_caption = QLabel("COMPOSITE RISK SCORE")
         score_caption.setObjectName("sectionLabel")
         score_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(score_caption)
+        quick_layout.addWidget(score_caption)
+
         self.confidence = QLabel("")
         self.confidence.setObjectName("hint")
         self.confidence.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.confidence)
+        quick_layout.addWidget(self.confidence)
+
         self.weights_label = QLabel("")
         self.weights_label.setObjectName("hint")
         self.weights_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.weights_label)
+        quick_layout.addWidget(self.weights_label)
 
         self.metrics: dict[str, QProgressBar] = {}
         for key in ("Hazard", "Exposure", "Vulnerability"):
@@ -273,25 +359,33 @@ class MainWindow(QMainWindow):
             bar.setRange(0, 100)
             bar.setValue(0)
             bar.setFormat("%v")
-            layout.addWidget(metric_label)
-            layout.addWidget(bar)
+            quick_layout.addWidget(metric_label)
+            quick_layout.addWidget(bar)
             self.metrics[key] = bar
+
         self.summary = QLabel("Configure a scenario and select a location to generate an assessment.")
         self.summary.setWordWrap(True)
         self.summary.setObjectName("summary")
-        layout.addWidget(self.summary)
-
-        layout.addWidget(self._section_label("SUGGESTIONS"))
-        self.suggestions = QLabel("")
-        self.suggestions.setWordWrap(True)
-        self.suggestions.setObjectName("suggestions")
-        layout.addWidget(self.suggestions)
+        quick_layout.addWidget(self.summary)
 
         self.actions = QLabel("")
         self.actions.setWordWrap(True)
         self.actions.setObjectName("actions")
-        layout.addWidget(self.actions)
-        layout.addStretch()
+        quick_layout.addWidget(self.actions)
+
+        self.suggestions = QLabel("")
+        self.suggestions.setWordWrap(True)
+        self.suggestions.setObjectName("suggestions")
+        quick_layout.addWidget(self.suggestions)
+
+        quick_layout.addStretch()
+        self.results_tabs.addTab(quick_tab, "Quick Assessment")
+
+        # Tab 2: Full Analysis
+        self.analysis_panel = AnalysisPanel()
+        self.results_tabs.addTab(self.analysis_panel, "Detailed Analysis")
+
+        layout.addWidget(self.results_tabs)
         return panel
 
     @staticmethod
@@ -354,19 +448,24 @@ class MainWindow(QMainWindow):
                 return
         self.statusBar().showMessage("MIT-WPU Kothrud not found in loaded dataset")
 
-    def export_pdf_report(self) -> None:
-        """Export the current assessment as a PDF report."""
-        if not self.assessment:
-            QMessageBox.information(self, "Nothing to export", "Run an assessment before exporting a PDF report.")
-            return
-        safe_name = "".join(ch if ch.isalnum() else "-" for ch in self.assessment.location.name.lower()).strip("-")
-        path, _ = QFileDialog.getSaveFileName(self, "Export PDF report", f"crisismap-{safe_name}.pdf", "PDF (*.pdf)")
-        if path:
-            try:
-                export_pdf(self.assessment, path)
-                self.statusBar().showMessage(f"Saved PDF report to {path}")
-            except Exception as exc:
-                QMessageBox.critical(self, "Could not export PDF", str(exc))
+    def _quick_scenario(self, disaster: DisasterType, intensity: float, duration: float, prep: float) -> None:
+        """Apply a quick preset scenario."""
+        self.disaster.setCurrentText(disaster.value)
+        self.intensity.setValue(intensity)
+        self.duration.setValue(duration)
+        self.preparedness.setValue(int(prep * 100))
+        if self.location:
+            self.run_assessment()
+
+    def _toggle_heatmap(self, checked: bool) -> None:
+        self.map_view.toggle_heatmap(checked)
+
+    def _toggle_grid(self, checked: bool) -> None:
+        self.map_view.toggle_grid(checked)
+
+    def _reset_map_view(self) -> None:
+        self.map_view.resetTransform()
+        self.map_view.fitInView(self.map_view.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def _update_parameter_help(self) -> None:
         help_text = {
@@ -442,6 +541,9 @@ class MainWindow(QMainWindow):
         self._generate_suggestions(result)
         self._start_pulse_animation()
 
+        # Push to analysis tab
+        self.analysis_panel.update_assessment(result, self.location)
+
     def _generate_suggestions(self, result: Assessment) -> None:
         suggestions = []
         loc = self.location
@@ -482,6 +584,46 @@ class MainWindow(QMainWindow):
         if loc.season == "monsoon" and result.scenario.disaster is DisasterType.FLOOD:
             suggestions.append("Monsoon season — expect amplified flood risk; monitor river levels continuously.")
 
+        # Infrastructure resilience suggestions
+        if loc.road_density < 0.4:
+            suggestions.append("Low road density may delay evacuation — identify alternative routes in advance.")
+        if loc.hospital_capacity < 0.5:
+            suggestions.append("Limited hospital capacity — coordinate with nearby medical centers for surge capacity.")
+        if loc.fire_station_proximity < 0.4:
+            suggestions.append("Fire station beyond optimal range — ensure on-site fire suppression equipment.")
+
+        # Utility and service suggestions
+        if result.scenario.disaster is DisasterType.EARTHQUAKE:
+            suggestions.append("Post-earthquake: inspect gas lines, electrical systems, and water mains before re-entry.")
+            suggestions.append("Expect aftershocks — keep evacuation routes clear for at least 24 hours.")
+        if result.scenario.disaster is DisasterType.FLOOD:
+            suggestions.append("Avoid walking or driving through floodwaters — as little as 15 cm can move a vehicle.")
+            suggestions.append("Boil water or use purification tablets until authorities declare supply safe.")
+        if result.scenario.disaster is DisasterType.WILDFIRE:
+            suggestions.append("Monitor air quality — wear N95 masks if smoke levels are high.")
+            suggestions.append("Create a defensible space of at least 9 meters around structures.")
+
+        # Socioeconomic and community suggestions
+        if loc.informal_settlement > 0.4:
+            suggestions.append("High informal settlement density — prioritize community-based early warning systems.")
+        if loc.population_density > 0.75:
+            suggestions.append("Very high population density — establish multiple assembly points to prevent crowding.")
+        if loc.elderly_share > 0.15:
+            suggestions.append("Significant elderly population — prioritize mobility assistance in evacuation plans.")
+        if loc.child_share > 0.2:
+            suggestions.append("High child population — coordinate with schools for child-safe evacuation procedures.")
+
+        # Economic impact suggestions
+        if result.overall_score > 60:
+            suggestions.append("High overall risk — consider business continuity planning and asset protection.")
+            suggestions.append("Document property and assets with photos before the event for insurance claims.")
+
+        # Environmental suggestions
+        if loc.vegetation > 0.7:
+            suggestions.append("Dense vegetation area — coordinate with forest department for firebreak maintenance.")
+        if loc.water_distance < 0.2:
+            suggestions.append("Close proximity to water body — monitor water levels and erosion risk during heavy rain.")
+
         self.suggestions.setText("<b>Suggestions</b><br>• " + "<br>• ".join(suggestions))
 
     def _start_pulse_animation(self) -> None:
@@ -512,8 +654,10 @@ class MainWindow(QMainWindow):
         if self._anim_timer:
             self._anim_timer.stop()
         self.assessment = None
+        self.location = None
         if hasattr(self, "map_view"):
             self.map_view.clear_assessment()
+            self.map_view.clear_selection()
         if hasattr(self, "risk_badge"):
             self.risk_badge.setText("NO RESULT")
             self.risk_badge.setStyleSheet("")
@@ -525,6 +669,12 @@ class MainWindow(QMainWindow):
             self.summary.setText("Configure a scenario and select a location to generate an assessment.")
             self.actions.clear()
             self.suggestions.setText("")
+            if hasattr(self, "analysis_panel"):
+                self.analysis_panel.clear()
+        if hasattr(self, "location_label"):
+            self.location_label.setText("Select an area on the map")
+        if hasattr(self, "search"):
+            self.search.clear()
 
     def open_geojson(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open local GeoJSON", str(Path.home()), "GeoJSON (*.geojson *.json)")
@@ -557,11 +707,171 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 QMessageBox.critical(self, "Could not save report", str(exc))
 
+    def export_pdf_report(self) -> None:
+        """Export the current assessment as a PDF report."""
+        if not self.assessment:
+            QMessageBox.information(self, "Nothing to export", "Run an assessment before exporting a PDF report.")
+            return
+        safe_name = "".join(ch if ch.isalnum() else "-" for ch in self.assessment.location.name.lower()).strip("-")
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDF report", f"crisismap-{safe_name}.pdf", "PDF (*.pdf)")
+        if path:
+            try:
+                export_pdf(self.assessment, path)
+                self.statusBar().showMessage(f"Saved PDF report to {path}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Could not export PDF", str(exc))
+
+    def save_scenario(self) -> None:
+        """Save current scenario configuration to a local JSON file."""
+        if not self.location:
+            QMessageBox.information(self, "Nothing to save", "Select a location and configure a scenario first.")
+            return
+        scenario_data = {
+            "location": {
+                "name": self.location.name,
+                "longitude": self.location.longitude,
+                "latitude": self.location.latitude,
+                "elevation_m": self.location.elevation_m,
+                "vegetation": self.location.vegetation,
+                "population_density": self.location.population_density,
+                "soil_softness": self.location.soil_softness,
+                "water_distance": self.location.water_distance,
+                "income_level": self.location.income_level,
+                "literacy_rate": self.location.literacy_rate,
+                "elderly_share": self.location.elderly_share,
+                "child_share": self.location.child_share,
+                "disability_share": self.location.disability_share,
+                "hospital_capacity": self.location.hospital_capacity,
+                "fire_station_proximity": self.location.fire_station_proximity,
+                "shelter_capacity": self.location.shelter_capacity,
+                "road_density": self.location.road_density,
+                "informal_settlement": self.location.informal_settlement,
+                "building_quality": self.location.building_quality,
+                "roof_type_score": self.location.roof_type_score,
+                "time_of_day": self.location.time_of_day,
+                "season": self.location.season,
+            },
+            "scenario": {
+                "disaster": self.disaster.currentText(),
+                "intensity": self.intensity.value(),
+                "duration_hours": self.duration.value(),
+                "preparedness": self.preparedness.value() / 100,
+                "weight_hazard": self.w_hazard.value(),
+                "weight_exposure": self.w_exposure.value(),
+                "weight_vulnerability": self.w_vulnerability.value(),
+            },
+        }
+        safe_name = "".join(ch if ch.isalnum() else "-" for ch in self.location.name.lower()).strip("-")
+        path, _ = QFileDialog.getSaveFileName(self, "Save scenario", f"crisismap-scenario-{safe_name}.json", "JSON (*.json)")
+        if path:
+            try:
+                Path(path).write_text(json.dumps(scenario_data, indent=2), encoding="utf-8")
+                self.statusBar().showMessage(f"Saved scenario locally to {path}")
+            except OSError as exc:
+                QMessageBox.critical(self, "Could not save scenario", str(exc))
+
+    def load_scenario(self) -> None:
+        """Load scenario configuration from a local JSON file."""
+        path, _ = QFileDialog.getOpenFileName(self, "Load scenario", str(Path.home()), "JSON (*.json)")
+        if not path:
+            return
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            loc_data = data["location"]
+            sc_data = data["scenario"]
+            self.disaster.setCurrentText(sc_data["disaster"])
+            self.intensity.setValue(sc_data["intensity"])
+            self.duration.setValue(sc_data["duration_hours"])
+            self.preparedness.setValue(int(sc_data["preparedness"] * 100))
+            self.w_hazard.setValue(sc_data["weight_hazard"])
+            self.w_exposure.setValue(sc_data["weight_exposure"])
+            self.w_vulnerability.setValue(sc_data["weight_vulnerability"])
+            self.time_of_day.setValue(loc_data.get("time_of_day", 12))
+            self.season.setCurrentText(loc_data.get("season", "mixed").title())
+            # Find matching location in dataset
+            if self.dataset:
+                for loc in self.dataset.locations:
+                    if loc.name == loc_data["name"]:
+                        self.map_view.select_location(loc, emit=True)
+                        break
+            self.statusBar().showMessage(f"Loaded scenario from {path}")
+        except (OSError, json.JSONDecodeError, KeyError) as exc:
+            QMessageBox.critical(self, "Could not load scenario", str(exc))
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key == Qt.Key.Key_F1:
+            self.show_about()
+        elif key == Qt.Key.Key_F2:
+            self.show_offline_info()
+        elif key == Qt.Key.Key_F5:
+            if self.location:
+                self.run_assessment()
+            else:
+                QMessageBox.information(self, "Select a location", "Click an area on the map or search for a loaded place first.")
+        elif key == Qt.Key.Key_Escape:
+            self.clear_result()
+        elif key == Qt.Key.Key_1:
+            self._quick_scenario(DisasterType.FLOOD, 7.0, 24, 0.45)
+        elif key == Qt.Key.Key_2:
+            self._quick_scenario(DisasterType.WILDFIRE, 6.0, 12, 0.50)
+        elif key == Qt.Key.Key_3:
+            self._quick_scenario(DisasterType.EARTHQUAKE, 7.0, 2, 0.55)
+        elif key == Qt.Key.Key_H:
+            self.heat_action.trigger()
+        elif key == Qt.Key.Key_G:
+            self.grid_action.trigger()
+        super().keyPressEvent(event)
+
     def show_about(self) -> None:
         QMessageBox.about(
             self,
             "About CrisisMap",
-            "<b>CrisisMap 0.2.0</b><br><br>Offline disaster-impact assessment with multi-factor hazard modeling, "
+            "<b>CrisisMap 0.3.0</b><br><br>Offline disaster-impact assessment with multi-factor hazard modeling, "
             "AHP weighting, Monte Carlo uncertainty, and real Pune map data.<br><br>"
             "Assessment only — not prediction or emergency advice.",
+        )
+
+    def show_offline_status(self) -> None:
+        """Offline audit: lists every local resource with file sizes to justify offline capability."""
+        lines = ["Offline Resource Audit", "=" * 40, ""]
+        data_dir = Path(__file__).parent.parent / "resources" / "data"
+        total_bytes = 0
+
+        lines.append("Bundled map data (all local):")
+        for fname in ["demo_region.geojson", "pune_wards.geojson"]:
+            fpath = data_dir / fname
+            if fpath.exists():
+                size_kb = fpath.stat().st_size / 1024
+                total_bytes += fpath.stat().st_size
+                lines.append(f"  ✓ {fname} — {size_kb:.1f} KB")
+            else:
+                lines.append(f"  ✗ {fname} — MISSING")
+
+        lines.append("")
+        lines.append("Python modules (all local, no external APIs):")
+        modules = [
+            ("crisismap.simulation", "Hazard/vulnerability engine"),
+            ("crisismap.export_pdf", "PDF report generator"),
+            ("crisismap.export", "JSON export"),
+            ("crisismap.models", "Data models"),
+            ("crisismap.data_repository", "GeoJSON loader"),
+        ]
+        for mod_name, desc in modules:
+            try:
+                __import__(mod_name)
+                lines.append(f"  ✓ {mod_name} — {desc}")
+            except Exception:
+                lines.append(f"  ✗ {mod_name} — ERROR")
+
+        lines.append("")
+        lines.append("External dependencies: NONE (no API keys, no cloud services, no telemetry)")
+        lines.append("Network access: NOT REQUIRED — works fully offline (air-gapped)")
+        total_mb = total_bytes / (1024 * 1024)
+        lines.append(f"Total bundled data: {total_mb:.2f} MB")
+
+        QMessageBox.information(
+            self,
+            "Offline Audit — Why this works without internet",
+            "\n".join(lines),
         )

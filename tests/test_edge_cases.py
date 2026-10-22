@@ -33,6 +33,452 @@ class EdgeCaseTests(unittest.TestCase):
             season="mixed",
         )
 
+    # --- Risk level suggestions ---
+    def test_suggestion_low_risk(self):
+        loc = LocationProfile(
+            name="Safe", longitude=73.0, latitude=18.5, elevation_m=500,
+            vegetation=0.1, population_density=0.2, soil_softness=0.2, water_distance=0.9,
+            income_level=0.9, literacy_rate=0.95, elderly_share=0.05, child_share=0.1,
+            disability_share=0.02, hospital_capacity=0.9, fire_station_proximity=0.9,
+            shelter_capacity=0.9, road_density=0.9, informal_settlement=0.05,
+            building_quality=0.9, roof_type_score=0.9, time_of_day=12, season="dry",
+        )
+        result = assess(loc, Scenario(DisasterType.FLOOD, 1, 1, 0.9))
+        # Low risk should still have recommendations from assess()
+        self.assertGreaterEqual(len(result.recommendations), 1)
+        self.assertIsInstance(result.recommendations, tuple)
+
+    def test_suggestion_moderate_risk(self):
+        loc = LocationProfile(
+            name="Mod", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.3, population_density=0.5, soil_softness=0.4, water_distance=0.6,
+            income_level=0.6, literacy_rate=0.8, elderly_share=0.1, child_share=0.15,
+            disability_share=0.04, hospital_capacity=0.6, fire_station_proximity=0.6,
+            shelter_capacity=0.6, road_density=0.6, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        result = assess(loc, Scenario(DisasterType.FLOOD, 4, 6, 0.5))
+        self.assertGreaterEqual(len(result.recommendations), 1)
+
+    def test_suggestion_high_risk(self):
+        loc = LocationProfile(
+            name="High", longitude=73.0, latitude=18.5, elevation_m=100,
+            vegetation=0.5, population_density=0.7, soil_softness=0.5, water_distance=0.4,
+            income_level=0.4, literacy_rate=0.6, elderly_share=0.12, child_share=0.18,
+            disability_share=0.06, hospital_capacity=0.4, fire_station_proximity=0.4,
+            shelter_capacity=0.4, road_density=0.4, informal_settlement=0.15,
+            building_quality=0.4, roof_type_score=0.4, time_of_day=12, season="mixed",
+        )
+        result = assess(loc, Scenario(DisasterType.FLOOD, 7, 12, 0.3))
+        self.assertGreaterEqual(len(result.recommendations), 1)
+
+    def test_suggestion_extreme_risk(self):
+        loc = LocationProfile(
+            name="Extreme", longitude=73.0, latitude=18.5, elevation_m=10,
+            vegetation=0.9, population_density=0.95, soil_softness=0.8, water_distance=0.1,
+            income_level=0.1, literacy_rate=0.4, elderly_share=0.2, child_share=0.25,
+            disability_share=0.1, hospital_capacity=0.1, fire_station_proximity=0.1,
+            shelter_capacity=0.1, road_density=0.1, informal_settlement=0.5,
+            building_quality=0.1, roof_type_score=0.1, time_of_day=3, season="monsoon",
+        )
+        result = assess(loc, Scenario(DisasterType.FLOOD, 9, 48, 0.1))
+        self.assertGreaterEqual(len(result.recommendations), 1)
+
+    # --- Elevation suggestion (low elevation → flood exposure) ---
+    def test_low_elevation_increases_flood_hazard(self):
+        low_loc = LocationProfile(
+            name="Low", longitude=73.0, latitude=18.5, elevation_m=10,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        high_loc = LocationProfile(
+            name="High", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        low_result = assess(low_loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        high_result = assess(high_loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertGreater(low_result.hazard_score, high_result.hazard_score)
+
+    # --- Vegetation suggestion (high vegetation → wildfire risk) ---
+    def test_high_vegetation_increases_wildfire_hazard(self):
+        low_veg = LocationProfile(
+            name="LowVeg", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.5, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="summer",
+        )
+        high_veg = LocationProfile(
+            name="HighVeg", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.9, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="summer",
+        )
+        low_result = assess(low_veg, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        high_result = assess(high_veg, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        self.assertGreater(high_result.hazard_score, low_result.hazard_score)
+
+    # --- Population density suggestion (congestion) ---
+    def test_high_population_density_increases_vulnerability(self):
+        low_density = LocationProfile(
+            name="LowDen", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        high_density = LocationProfile(
+            name="HighDen", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.9, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        low_result = assess(low_density, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        high_result = assess(high_density, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertGreater(high_result.vulnerability_score, low_result.vulnerability_score)
+
+    # --- Informal settlement suggestion ---
+    def test_high_informal_settlement_increases_vulnerability(self):
+        low_informal = LocationProfile(
+            name="Formal", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.05,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        high_informal = LocationProfile(
+            name="Informal", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.5,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        low_result = assess(low_informal, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        high_result = assess(high_informal, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertGreater(high_result.vulnerability_score, low_result.vulnerability_score)
+
+    # --- Hospital capacity suggestion ---
+    def test_low_hospital_capacity_increases_vulnerability(self):
+        good_hospital = LocationProfile(
+            name="GoodHosp", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.9, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        poor_hospital = LocationProfile(
+            name="PoorHosp", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.1, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        good_result = assess(good_hospital, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        poor_result = assess(poor_hospital, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertGreater(poor_result.vulnerability_score, good_result.vulnerability_score)
+
+    # --- Fire station proximity suggestion ---
+    def test_far_fire_station_increases_vulnerability(self):
+        near_fire = LocationProfile(
+            name="NearFire", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.9,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        far_fire = LocationProfile(
+            name="FarFire", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.1,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        near_result = assess(near_fire, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        far_result = assess(far_fire, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        self.assertGreater(far_result.vulnerability_score, near_result.vulnerability_score)
+
+    # --- Shelter capacity suggestion ---
+    def test_low_shelter_capacity_increases_vulnerability(self):
+        good_shelter = LocationProfile(
+            name="GoodShelter", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.9, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        poor_shelter = LocationProfile(
+            name="PoorShelter", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.1, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        good_result = assess(good_shelter, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        poor_result = assess(poor_shelter, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertGreater(poor_result.vulnerability_score, good_result.vulnerability_score)
+
+    # --- Building quality suggestion ---
+    def test_poor_building_quality_increases_vulnerability(self):
+        good_building = LocationProfile(
+            name="GoodBuild", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.9, roof_type_score=0.9, time_of_day=12, season="mixed",
+        )
+        poor_building = LocationProfile(
+            name="PoorBuild", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.2, roof_type_score=0.2, time_of_day=12, season="mixed",
+        )
+        good_result = assess(good_building, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        poor_result = assess(poor_building, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertGreater(poor_result.vulnerability_score, good_result.vulnerability_score)
+
+    # --- Time of day suggestion (night) ---
+    def test_night_time_increases_vulnerability(self):
+        day_loc = LocationProfile(
+            name="Day", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=14, season="mixed",
+        )
+        night_loc = LocationProfile(
+            name="Night", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=3, season="mixed",
+        )
+        day_result = assess(day_loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        night_result = assess(night_loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertGreaterEqual(night_result.overall_score, day_result.overall_score)
+
+    # --- Monsoon + flood suggestion ---
+    def test_monsoon_increases_flood_hazard(self):
+        dry_loc = LocationProfile(
+            name="Dry", longitude=73.0, latitude=18.5, elevation_m=50,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        monsoon_loc = LocationProfile(
+            name="Monsoon", longitude=73.0, latitude=18.5, elevation_m=50,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="monsoon",
+        )
+        dry_result = assess(dry_loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        monsoon_result = assess(monsoon_loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertGreater(monsoon_result.hazard_score, dry_result.hazard_score)
+
+    # --- Road density suggestion (low density → drainage) ---
+    def test_low_road_density_increases_flood_hazard(self):
+        good_road = LocationProfile(
+            name="GoodRoad", longitude=73.0, latitude=18.5, elevation_m=100,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.9, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        poor_road = LocationProfile(
+            name="PoorRoad", longitude=73.0, latitude=18.5, elevation_m=100,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.1, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        good_result = assess(good_road, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        poor_result = assess(poor_road, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertGreater(poor_result.hazard_score, good_result.hazard_score)
+
+    # --- Disaster-specific recommendations (flood) ---
+    def test_flood_recommendations(self):
+        loc = LocationProfile(
+            name="Test", longitude=73.0, latitude=18.5, elevation_m=100,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        result = assess(loc, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertTrue(any("higher ground" in r.lower() for r in result.recommendations))
+        self.assertTrue(any("drainage" in r.lower() for r in result.recommendations))
+
+    # --- Disaster-specific recommendations (wildfire) ---
+    def test_wildfire_recommendations(self):
+        loc = LocationProfile(
+            name="Test", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        result = assess(loc, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        self.assertTrue(any("combustible" in r.lower() for r in result.recommendations))
+        self.assertTrue(any("defensible" in r.lower() for r in result.recommendations))
+
+    # --- Disaster-specific recommendations (earthquake) ---
+    def test_earthquake_recommendations(self):
+        loc = LocationProfile(
+            name="Test", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        result = assess(loc, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertTrue(any("structures" in r.lower() or "shaking" in r.lower() for r in result.recommendations))
+        self.assertTrue(any("gas" in r.lower() or "electric" in r.lower() for r in result.recommendations))
+
+    # --- Elderly share suggestion ---
+    def test_high_elderly_share_increases_vulnerability(self):
+        low_elderly = LocationProfile(
+            name="Young", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.05, child_share=0.1,
+            disability_share=0.02, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        high_elderly = LocationProfile(
+            name="Old", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.2, child_share=0.1,
+            disability_share=0.02, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        low_result = assess(low_elderly, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        high_result = assess(high_elderly, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertGreater(high_result.vulnerability_score, low_result.vulnerability_score)
+
+    # --- Child share suggestion ---
+    def test_high_child_share_increases_vulnerability(self):
+        low_child = LocationProfile(
+            name="FewChild", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.1,
+            disability_share=0.02, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        high_child = LocationProfile(
+            name="ManyChild", longitude=73.0, latitude=18.5, elevation_m=200,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.3,
+            disability_share=0.02, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="mixed",
+        )
+        low_result = assess(low_child, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        high_result = assess(high_child, Scenario(DisasterType.EARTHQUAKE, 6, 24, 0.5))
+        self.assertGreater(high_result.vulnerability_score, low_result.vulnerability_score)
+
+    # --- Overall score > 60 suggestion ---
+    def test_high_overall_score_impact(self):
+        low_risk_loc = LocationProfile(
+            name="Safe", longitude=73.0, latitude=18.5, elevation_m=500,
+            vegetation=0.1, population_density=0.2, soil_softness=0.2, water_distance=0.9,
+            income_level=0.9, literacy_rate=0.95, elderly_share=0.05, child_share=0.1,
+            disability_share=0.02, hospital_capacity=0.9, fire_station_proximity=0.9,
+            shelter_capacity=0.9, road_density=0.9, informal_settlement=0.05,
+            building_quality=0.9, roof_type_score=0.9, time_of_day=12, season="dry",
+        )
+        high_risk_loc = LocationProfile(
+            name="Risk", longitude=73.0, latitude=18.5, elevation_m=10,
+            vegetation=0.9, population_density=0.95, soil_softness=0.8, water_distance=0.1,
+            income_level=0.1, literacy_rate=0.4, elderly_share=0.2, child_share=0.25,
+            disability_share=0.1, hospital_capacity=0.1, fire_station_proximity=0.1,
+            shelter_capacity=0.1, road_density=0.1, informal_settlement=0.5,
+            building_quality=0.1, roof_type_score=0.1, time_of_day=3, season="monsoon",
+        )
+        low_result = assess(low_risk_loc, Scenario(DisasterType.FLOOD, 3, 6, 0.9))
+        high_result = assess(high_risk_loc, Scenario(DisasterType.FLOOD, 9, 48, 0.1))
+        self.assertLess(low_result.overall_score, 60)
+        self.assertGreaterEqual(high_result.overall_score, 60)
+
+    # --- Dense vegetation suggestion (vegetation > 0.7) ---
+    def test_dense_vegetation_increases_wildfire_hazard(self):
+        mod_veg = LocationProfile(
+            name="ModVeg", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.6, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="summer",
+        )
+        dense_veg = LocationProfile(
+            name="DenseVeg", longitude=73.0, latitude=18.5, elevation_m=300,
+            vegetation=0.9, population_density=0.5, soil_softness=0.4, water_distance=0.5,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="summer",
+        )
+        mod_result = assess(mod_veg, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        dense_result = assess(dense_veg, Scenario(DisasterType.WILDFIRE, 6, 24, 0.5))
+        self.assertGreater(dense_result.hazard_score, mod_result.hazard_score)
+
+    # --- Water distance suggestion (close to water) ---
+    def test_close_to_water_increases_flood_hazard(self):
+        far_water = LocationProfile(
+            name="FarWater", longitude=73.0, latitude=18.5, elevation_m=100,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.9,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        near_water = LocationProfile(
+            name="NearWater", longitude=73.0, latitude=18.5, elevation_m=100,
+            vegetation=0.4, population_density=0.5, soil_softness=0.4, water_distance=0.1,
+            income_level=0.5, literacy_rate=0.75, elderly_share=0.1, child_share=0.15,
+            disability_share=0.05, hospital_capacity=0.5, fire_station_proximity=0.5,
+            shelter_capacity=0.5, road_density=0.5, informal_settlement=0.1,
+            building_quality=0.6, roof_type_score=0.6, time_of_day=12, season="dry",
+        )
+        far_result = assess(far_water, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        near_result = assess(near_water, Scenario(DisasterType.FLOOD, 6, 24, 0.5))
+        self.assertGreater(near_result.hazard_score, far_result.hazard_score)
+
     # --- Risk classification boundaries ---
     def test_classification_exact_boundaries(self):
         self.assertEqual(classify_risk(0), RiskLevel.LOW)
